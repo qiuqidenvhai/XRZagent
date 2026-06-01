@@ -150,11 +150,9 @@ class SubAgentManager:
         原始凭据目录永远不动，避免被锁。
         """
         import tempfile
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"{prefix}_cred_"))
-        cred_file = temp_dir / "deepseek_cookies.json"
-        if COOKIE_FILE.exists():
-            shutil.copy2(COOKIE_FILE, cred_file)
-        return temp_dir
+        # 直接返回主凭据目录，由母代理维护最新 cookie
+        # 避免临时目录复制导致 cookie 失效（WinError 32 / session 过期）
+        return CREDENTIALS_DIR
 
     @staticmethod
     def copy_credentials_to(target_dir: Path) -> bool:

@@ -333,30 +333,66 @@ class Commander:
             return "\n".join([f"{'[DIR]' if i.is_dir() else '[FILE]'} {i.name}" for i in items])
 
         async def dir_create(**params):
-            import asyncio, subprocess, sys as _sys, os as _os
+            """创建目录，支持中文路径别名和已知乱码模式自动修复
+
+            自动识别：桌面/Desktop（GBK截断→esktop）、CP_Report→MCP_Report 等
+            """
+            import asyncio, subprocess, os as _os
             p = Path(params.get("path", ""))
-            # 展开 ~ 和环境变量
-            path_str = str(p.expanduser()) if "~" in str(p) else str(p)
+            path_raw = str(p.expanduser()) if "~" in str(p) else str(p)
+
+            # ── 检测已知 GBK 截断乱码模式 ──
+            garbled_fixes = [
+                (r"esktop$", "Desktop"),          # ...esktop → Desktop
+                (r"C:\\sers\\[^\s\\]+", "C:\\Users"),  # C:\sers\... → C:\Users
+                (r"CP_Report", "MCP_Report"),     # CP_Report 截断
+            ]
+            for pattern, replacement in garbled_fixes:
+                if re.search(pattern, path_raw):
+                    path_raw = re.sub(pattern, replacement, path_raw)
+
+            # ── 中文路径别名展开 ──
+            for alias, ps_expr in [
+                ("桌面", "[Environment]::GetFolderPath('Desktop')"),
+                ("Desktop", "[Environment]::GetFolderPath('Desktop')"),
+                ("下载", "[Environment]::GetFolderPath('Download')"),
+                ("Downloads", "[Environment]::GetFolderPath('Download')"),
+                ("文档", "[Environment]::GetFolderPath('MyDocuments')"),
+                ("Documents", "[Environment]::GetFolderPath('MyDocuments')"),
+            ]:
+                if alias in path_raw:
+                    try:
+                        r = subprocess.run(["powershell","-NoProfile","-Command",ps_expr],
+                            capture_output=True, encoding="utf-8", errors="replace", timeout=5)
+                        if r.returncode == 0:
+                            path_raw = path_raw.replace(alias, r.stdout.strip())
+                    except Exception:
+                        pass
+
+            # ── 环境变量展开 ──
             for ev in ["USERPROFILE", "HOME", "APPDATA", "TEMP"]:
                 if ev in _os.environ:
-                    path_str = path_str.replace(f"%{ev}%", _os.environ[ev]).replace(f"${ev}", _os.environ[ev])
-            # 用 PowerShell New-Item（直接走 Windows API，Unicode 安全）
-            _ps_path = path_str.replace("'", "''")
-            _ps_cmd = f"New-Item -ItemType Directory -Force -Path '{_ps_path}' | Out-Null; Write-Host 'DIR_OK'"
-            cmd = ["powershell", "-NoProfile", "-Command", _ps_cmd]
+                    path_raw = path_raw.replace(f"%{ev}%", _os.environ[ev]).replace(f"${ev}", _os.environ[ev])
+
+            # ── PowerShell 创建（Unicode 安全）──
+            ps_path = path_raw.replace("'", "''")
+            ps_cmd = (f"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null; "
+                      f"Write-Host 'DIR_OK:' + (Resolve-Path '{ps_path}').Path")
             try:
-                proc = await asyncio.create_subprocess_exec(*cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE)
+                proc = await asyncio.create_subprocess_exec(
+                    "powershell", "-NoProfile", "-Command", ps_cmd,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
                 if proc.returncode == 0:
-                    resolved = Path(path_str).resolve()
-                    return f"目录已创建: {resolved}"
+                    for line in stdout.decode('utf-8', errors='replace').splitlines():
+                        if line.startswith("DIR_OK:"):
+                            return f"目录已创建: {line.split('DIR_OK:',1)[1].strip()}"
+                    return f"目录已创建: {path_raw}"
                 else:
-                    err = stderr.decode("utf-8", errors="replace").strip()
-                    return f"[错误] {err}"
+                    return f"[错误] {stderr.decode('utf-8', errors='replace').strip()}"
             except asyncio.TimeoutExpired:
-                proc.kill()
+                try: proc.kill()
+                except Exception: pass
                 return "[错误] dir_create 超时"
             except Exception as e:
                 return f"[错误] {e}"
@@ -415,43 +451,60 @@ class Commander:
 
         # ─── Shell 执行工具 ───
         async def shell_exec(**params):
-            import asyncio
+            import asyncio, re, subprocess, os as _os
             cmd = params.get("command", "")
             timeout = params.get("timeout", 60)
-            # 检测命令是否含非ASCII字符（中文路径等），用PowerShell执行避免编码问题
-            try:
-                import re
-                has_non_ascii = bool(re.search(r'[^\x00-\x7F]', cmd))
-            except Exception:
-                has_non_ascii = False
-            if has_non_ascii:
-                # 用 PowerShell 转发，-Command 会正确处理 Unicode
-                pwsh_cmd = ["powershell", "-NoProfile", "-Command", cmd]
+
+            # ── 检测是否需要 PowerShell（乱码模式/非ASCII/中文别名）──
+            has_garbled = bool(re.search(r"esktop|C:\\\\sers|CP_Report", cmd, re.IGNORECASE))
+            has_non_ascii = bool(re.search(r"[^\x00-\x7F]", cmd))
+            has_alias = any(a in cmd for a in ["桌面","Desktop","下载","Downloads","文档","Documents"])
+
+            if has_garbled or has_non_ascii or has_alias:
+                # 展开中文路径别名
+                expanded = cmd
+                for alias, ps_expr in [
+                    ("桌面", "[Environment]::GetFolderPath('Desktop')"),
+                    ("Desktop", "[Environment]::GetFolderPath('Desktop')"),
+                    ("下载", "[Environment]::GetFolderPath('Download')"),
+                    ("Downloads", "[Environment]::GetFolderPath('Download')"),
+                ]:
+                    if alias in expanded:
+                        try:
+                            r = subprocess.run(["powershell","-NoProfile","-Command",ps_expr],
+                                capture_output=True, encoding="utf-8", errors="replace", timeout=5)
+                            if r.returncode == 0:
+                                expanded = expanded.replace(alias, r.stdout.strip())
+                        except Exception:
+                            pass
+                pwsh_cmd = ["powershell", "-NoProfile", "-Command", expanded]
                 try:
                     proc = await asyncio.create_subprocess_exec(*pwsh_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE)
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                     stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                    return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='replace')}\n{stderr.decode('utf-8', errors='replace')}"
-                except asyncio.TimeoutError:
-                    proc.kill()
+                    return (f"[退出码 {proc.returncode}]\n"
+                            f"{stdout.decode('utf-8', errors='replace')}"
+                            f"{stderr.decode('utf-8', errors='replace')}")
+                except asyncio.TimeoutExpired:
+                    try: proc.kill()
+                    except Exception: pass
                     return f"命令超时（>{timeout}s）"
                 except Exception as e:
                     return f"执行错误: {e}"
-            # 普通命令走原生 shell
-            try:
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='replace')}\n{stderr.decode('utf-8', errors='replace')}"
-            except asyncio.TimeoutError:
-                proc.kill()
-                return f"命令超时（>{timeout}s）"
-            except Exception as e:
-                return f"执行错误: {e}"
+            else:
+                try:
+                    proc = await asyncio.create_subprocess_shell(cmd,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                    return (f"[退出码 {proc.returncode}]\n"
+                            f"{stdout.decode('utf-8', errors='replace')}"
+                            f"{stderr.decode('utf-8', errors='replace')}")
+                except asyncio.TimeoutExpired:
+                    try: proc.kill()
+                    except Exception: pass
+                    return f"命令超时（>{timeout}s）"
+                except Exception as e:
+                    return f"执行错误: {e}"
 
         self._tools.register("shell_exec", "执行Shell命令", shell_exec)
 

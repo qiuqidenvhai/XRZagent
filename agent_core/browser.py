@@ -342,7 +342,7 @@ class BrowserManager:
 
         return True
 
-    async def wait_response(self, timeout: int = 120) -> Optional[str]:
+    async def wait_response(self, timeout: int = 300) -> Optional[str]:
         """等待 AI 回复"""
         if self._page is None:
             return None

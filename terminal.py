@@ -457,19 +457,36 @@ class Terminal:
         else:
             print(c("[思考] 当前无思考内容", GRAY))
     
+    async def _emergency_shutdown(self):
+        """紧急关闭（由 Ctrl+C signal handler 调用）"""
+        try:
+            print(c("\n\n[紧急关闭] 正在保存状态...", YELLOW))
+            if self.browser:
+                try:
+                    await self.browser.close()
+                except Exception:
+                    pass
+            self.running = False
+        except Exception:
+            pass
+
     async def _shutdown(self):
-        """优雅关闭：关闭浏览器 + 保存 cookie"""
-        if self.browser:
-            try:
-                await self.browser.close()
-            except Exception:
-                pass
-        if hasattr(self, 'session') and self.session:
-            try:
-                self.session.save_cookies()
-            except Exception:
-                pass
-        print(c("\n再见！仙人掌 Agent 下次见 🏜️\n", CYAN))
+        """优雅关闭：关闭浏览器 + 保存 cookie + 保存会话历史"""
+        try:
+            if self.browser:
+                try:
+                    await self.browser.close()
+                except Exception:
+                    pass
+            if hasattr(self, 'session') and self.session:
+                try:
+                    if hasattr(self.session, 'save_conversation'):
+                        self.session.save_conversation()
+                except Exception:
+                    pass
+            print(c("\n再见！仙人掌 Agent 下次见 🏜️\n", CYAN))
+        except Exception:
+            pass
 
     def _on_event(self, event):
         etype = event.event_type
@@ -505,11 +522,21 @@ class Terminal:
 
 
 async def main():
-    # 注册 Ctrl+C 信号处理器
-    if sys.platform != "win32":
-        signal.signal(signal.SIGINT, _sigint_handler)
+    # 注册 Windows Ctrl+C handler
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel32.SetConsoleCtrlHandler(_win32_ctrl_handler, True)
+        except Exception:
+            pass
     terminal = Terminal()
-    await terminal.run()
+    try:
+        await terminal.run()
+    except KeyboardInterrupt:
+        print(c("\n[Ctrl+C] 正在关闭...", YELLOW))
+    finally:
+        await terminal._shutdown()
 
 
 if __name__ == "__main__":
