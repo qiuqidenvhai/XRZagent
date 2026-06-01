@@ -257,11 +257,16 @@ class Commander:
             script_path = Path(__file__).parent.parent / "web_searcher.py"
             
             try:
+                import os
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
                 result = subprocess.run(
                     [sys.executable, str(script_path), query, str(max_pages), output_file],
                     capture_output=True,
-                    text=True,
-                    timeout=60
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=60,
+                    env=env,
                 )
                 
                 if result.returncode == 0:
