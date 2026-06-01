@@ -5,6 +5,17 @@ import sys
 # Ctrl+C 优雅关闭
 # ════════════════════════════════════════════════════════════
 _SHUTDOWN_REQUESTED = False
+_TERMINAL_INSTANCE = None
+
+def _win32_ctrl_handler(event):
+    """Windows 控制台 Ctrl+C 处理器"""
+    if event == 0:  # CTRL_C_EVENT
+        global _SHUTDOWN_REQUESTED
+        if not _SHUTDOWN_REQUESTED:
+            _SHUTDOWN_REQUESTED = True
+            print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）", end="", flush=True)
+        return True
+    return False
 
 def _sigint_handler(signum, frame):
     global _SHUTDOWN_REQUESTED
@@ -158,6 +169,20 @@ class Terminal:
 
         # 9. 初始化会话和 Commander
         self.session = DeepSeekSession(self.browser)
+        # 检查并询问是否恢复上次会话
+        if hasattr(self.session, 'load_conversation') and hasattr(self.session, 'get_last_conv_url'):
+            last_url = self.session.get_last_conv_url()
+            if last_url:
+                print(c(f"\n[会话恢复] 发现上次会话: {last_url}", YELLOW))
+                print(c("输入 y 恢复，或回车跳过: ", YELLOW), end="", flush=True)
+                choice = self._read_line_nonblock(default="n")
+                if choice == "y":
+                    try:
+                        self.session.load_conversation()
+                        print(c("[会话已恢复]\n", GREEN))
+                    except Exception as e:
+                        print(c(f"[恢复失败] {e}\n", RED))
+
         self.commander = Commander(
             browser_manager=self.browser,
             session=self.session,
@@ -175,8 +200,9 @@ class Terminal:
         while self.running:
             # Ctrl+C 触发优雅关闭
             if _SHUTDOWN_REQUESTED:
-                print("\n[关闭] 正在保存状态...\n")
+                print(c("\n[关闭] 正在保存状态...", YELLOW))
                 self.running = False
+                await self._shutdown()
                 break
             # 处理 ask 队列
             if self._ask_event.is_set():
@@ -252,6 +278,13 @@ class Terminal:
 
             await self._handle_command(raw)
 
+            # 每轮结束后自动保存会话历史
+            if hasattr(self, 'session') and self.session and hasattr(self.session, 'save_conversation'):
+                try:
+                    self.session.save_conversation()
+                except Exception:
+                    pass
+
             # 检查子代理通知
             notifs = self._sam.get_and_clear_notifications()
             for notif in notifs:
@@ -265,7 +298,40 @@ class Terminal:
                     print(c(f"错误：{notif.error or '未知错误'}", RED))
                 print(c("="*40 + "\n", YELLOW))
 
-        await self._shutdown()
+    def _read_line(self) -> str:
+        """同步读取一行（供 run_in_executor 使用）。Windows 上用 msvcrt 实时读取。"""
+        if sys.platform == "win32":
+            import msvcrt
+            chars = []
+            while True:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwche()
+                    if ch == '\r':
+                        print()  # 换行
+                        break
+                    elif ch == '\b':
+                        if chars:
+                            chars.pop()
+                            sys.stdout.write(' \b')
+                            sys.stdout.flush()
+                    else:
+                        chars.append(ch)
+                else:
+                    import time
+                    time.sleep(0.02)
+            return ''.join(chars)
+        else:
+            return input()
+
+    def _read_line_nonblock(self, default: str = "n") -> str:
+        """非阻塞读取一行，超时返回默认值。Windows 兼容。"""
+        import select, sys
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
+                return sys.stdin.readline().strip()
+        except Exception:
+            pass
+        return default
 
     def _copy_credentials_to_managed_dir(self):
         """将凭据复制到管理目录 ~/.xianrenzhang_agent/credentials/"""
@@ -522,7 +588,7 @@ class Terminal:
 
 
 async def main():
-    # 注册 Windows Ctrl+C handler
+    # 注册信号处理器
     if sys.platform == "win32":
         try:
             import ctypes
@@ -530,6 +596,8 @@ async def main():
             kernel32.SetConsoleCtrlHandler(_win32_ctrl_handler, True)
         except Exception:
             pass
+    else:
+        signal.signal(signal.SIGINT, _sigint_handler)
     terminal = Terminal()
     try:
         await terminal.run()
