@@ -4,24 +4,22 @@ import sys
 # ════════════════════════════════════════════════════════════
 # Ctrl+C 优雅关闭
 # ════════════════════════════════════════════════════════════
-_SHUTDOWN_REQUESTED = False
-_TERMINAL_INSTANCE = None
+_INTERRUPT_REQUESTED = False
+_INPUT_LINE = None
 
 def _win32_ctrl_handler(event):
-    """Windows 控制台 Ctrl+C 处理器"""
-    if event == 0:  # CTRL_C_EVENT
-        global _SHUTDOWN_REQUESTED
-        if not _SHUTDOWN_REQUESTED:
-            _SHUTDOWN_REQUESTED = True
-            print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）", end="", flush=True)
+    """Windows Ctrl+C — 打断当前任务，回到输入模式"""
+    if event == 0:
+        global _INTERRUPT_REQUESTED
+        _INTERRUPT_REQUESTED = True
+        print("\n\n[Ctrl+C] 已打断，输入新指令: ", end="", flush=True)
         return True
     return False
 
 def _sigint_handler(signum, frame):
-    global _SHUTDOWN_REQUESTED
-    if not _SHUTDOWN_REQUESTED:
-        _SHUTDOWN_REQUESTED = True
-        print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）", end="", flush=True)
+    global _INTERRUPT_REQUESTED
+    _INTERRUPT_REQUESTED = True
+    print("\n\n[Ctrl+C] 已打断，输入新指令: ", end="", flush=True)
 
 # Windows 控制台 UTF-8 支持（解决 emoji 等 Unicode 字符显示问题）
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -198,12 +196,11 @@ class Terminal:
 
         # 主循环
         while self.running:
-            # Ctrl+C 触发优雅关闭
-            if _SHUTDOWN_REQUESTED:
-                print(c("\n[关闭] 正在保存状态...", YELLOW))
-                self.running = False
-                await self._shutdown()
-                break
+            # Ctrl+C 打断当前任务，回到输入模式
+            if _INTERRUPT_REQUESTED:
+                _INTERRUPT_REQUESTED = False
+                print(c("\n[打断] 正在中断...\n", YELLOW))
+                continue  # 回到输入模式，不退出
             # 处理 ask 队列
             if self._ask_event.is_set():
                 self._ask_event.clear()
@@ -215,16 +212,22 @@ class Terminal:
 
             try:
                 raw = await asyncio.get_event_loop().run_in_executor(None, self._read_line)
-            except KeyboardInterrupt:
-                print(c("\n[中断] 输入新命令继续\n", YELLOW))
+            except (KeyboardInterrupt, EOFError):
+                print(c("\n[中断] 输入新指令继续\n", YELLOW))
+                _INTERRUPT_REQUESTED = False
                 continue
-            if raw is None:
-                break
 
-            cmd = raw.strip().lower()
+            # 空输入 → 继续等待，不退出
+            if not raw:
+                continue
+
+            cmd = raw.lower()
             if cmd in ("quit", "exit", "q"):
                 self.running = False
                 break
+            if not cmd:
+                # 空内容 → 继续等待
+                continue
             if cmd == "clear":
                 print("\n" * 60)
                 continue
@@ -298,32 +301,45 @@ class Terminal:
                     print(c(f"错误：{notif.error or '未知错误'}", RED))
                 print(c("="*40 + "\n", YELLOW))
 
-    def _read_line(self) -> str:
-        """同步读取一行（供 run_in_executor 使用）。Windows 上用 msvcrt 实时读取。"""
-        if sys.platform == "win32":
-            import msvcrt
-            chars = []
-            while True:
-                if msvcrt.kbhit():
-                    ch = msvcrt.getwche()
-                    if ch == '\r':
-                        print()  # 换行
-                        break
-                    elif ch == '\b':
-                        if chars:
-                            chars.pop()
-                            sys.stdout.write(' \b')
-                            sys.stdout.flush()
-                    else:
-                        chars.append(ch)
+    def _read_line(self):
+        """Non-blocking read. Never blocks event loop."""
+        import threading
+        result = [None]
+        def reader():
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    chars = []
+                    while True:
+                        if msvcrt.kbhit():
+                            ch = msvcrt.getwche()
+                            if ch == '\r':
+                                print()
+                                result[0] = ''.join(chars)
+                                return
+                            elif ch == '\b':
+                                if chars:
+                                    chars.pop()
+                                    sys.stdout.write(' \b')
+                                    sys.stdout.flush()
+                            else:
+                                chars.append(ch)
+                        else:
+                            import time; time.sleep(0.01)
                 else:
-                    import time
-                    time.sleep(0.02)
-            return ''.join(chars)
-        else:
-            return input()
+                    result[0] = input()
+            except Exception:
+                result[0] = None
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        t.join(timeout=0.05)
+        return result[0] if t.is_alive() else (result[0] or '')
 
-    def _read_line_nonblock(self, default: str = "n") -> str:
+    def _read_line_nonblock(self, default=''):
+        """Non-blocking read, returns default if no input."""
+        r = self._read_line()
+        return r if r else default
+
         """非阻塞读取一行，超时返回默认值。Windows 兼容。"""
         import select, sys
         try:

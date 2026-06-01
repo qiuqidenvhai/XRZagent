@@ -233,25 +233,15 @@ class Commander:
         async def wait_minutes(**params):
             """等待指定分钟数（Agent 自我等待，不消耗 AI 配额）。
 
-            用途：
-            - 等待任务完成（如等待子代理、文件处理等）
-            - 轮询检查状态（如等待某个条件满足）
-            - 避免频繁调用 AI
-
-            参数：
-            - minutes: float, 等待分钟数（支持小数，如 0.5 = 30 秒）
-            - check_interval: float, 检查间隔秒数（默认 5 秒）
-
-            返回：等待完成后返回 "[等待完成] 已等待 N 分钟"
+            注意：实际实现为立即返回，不真正等待。
+            在交互式 Agent 中长时间等待没有意义，用户可以随时中断。
             """
-            minutes = float(params.get("minutes", 1))
-            total_secs = minutes * 60
-            await asyncio.sleep(total_secs)
-            return f"[等待完成] 已等待 {minutes:.1f} 分钟（{int(total_secs)} 秒）"
+            minutes = float(params.get("minutes", 0))
+            return f"[等待跳过] 请求等待 {minutes:.1ff} 分钟（已忽略，交互模式不等待）"
 
         self._tools.register(
             "wait_minutes",
-            "wait_minutes(minutes): 等待指定分钟数，不消耗 AI 配额，适合轮询等待",
+            "wait_minutes(minutes): 等待指定分钟数（交互模式立即返回）",
             wait_minutes
         )
 
