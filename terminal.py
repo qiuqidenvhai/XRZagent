@@ -167,19 +167,31 @@ class Terminal:
 
         # 9. 初始化会话和 Commander
         self.session = DeepSeekSession(self.browser)
-        # 检查并询问是否恢复上次会话
-        if hasattr(self.session, 'load_conversation') and hasattr(self.session, 'get_last_conv_url'):
-            last_url = self.session.get_last_conv_url()
-            if last_url:
-                print(c(f"\n[会话恢复] 发现上次会话: {last_url}", YELLOW))
-                print(c("输入 y 恢复，或回车跳过: ", YELLOW), end="", flush=True)
-                choice = self._read_line_nonblock(default="n")
-                if choice == "y":
-                    try:
-                        self.session.load_conversation()
+        # 会话历史列表（全部历史对话）
+        conv_list = self.session.list_conversations() if hasattr(self.session, 'list_conversations') else []
+        if conv_list:
+            print(c("\n[会话历史] 共 " + str(len(conv_list)) + " 条记录\n", CYAN, BOLD))
+            for i_conv, conv in enumerate(conv_list, 1):
+                ts = conv.get("ts", "?")
+                url = conv.get("url", "无URL")
+                msg_count = conv.get("messages", 0)
+                print(c("  " + str(i_conv) + ". [" + ts + "] " + str(msg_count) + " 条消息 | " + url[:60], GRAY))
+            print(c("\n输入数字加载，或回车新建: ", YELLOW), end="", flush=True)
+            choice = self._read_line_nonblock(default="")
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(conv_list):
+                    file_path = conv_list[idx].get("file_path")
+                    if file_path and self.session.load_conversation(file_path=file_path):
                         print(c("[会话已恢复]\n", GREEN))
-                    except Exception as e:
-                        print(c(f"[恢复失败] {e}\n", RED))
+                    else:
+                        print(c("[加载失败，新建会话]\n", YELLOW))
+                else:
+                    print(c("[新建会话]\n", GREEN))
+            except (ValueError, IndexError):
+                print(c("[新建会话]\n", GREEN))
+        else:
+            print(c("[新会话]\n", GREEN))
 
         self.commander = Commander(
             browser_manager=self.browser,
@@ -223,8 +235,8 @@ class Terminal:
                 _INTERRUPT_REQUESTED = False
                 continue
 
-            # 空输入 → 继续等待，不退出
-            if not raw:
+            # 空输入/无效 → 继续等待，不退出
+            if not raw or raw is None:
                 continue
 
             cmd = raw.lower()
@@ -308,9 +320,9 @@ class Terminal:
                 print(c("="*40 + "\n", YELLOW))
 
     def _read_line(self):
-        """Non-blocking read. Never blocks event loop."""
+        """Non-blocking read. Never blocks event loop. 永远返回字符串，永不返回None。"""
         import threading
-        result = [None]
+        result = ['']
         def reader():
             try:
                 if sys.platform == "win32":
@@ -334,12 +346,14 @@ class Terminal:
                             import time; time.sleep(0.01)
                 else:
                     result[0] = input()
+            except (EOFError, KeyboardInterrupt):
+                result[0] = ''
             except Exception:
-                result[0] = None
+                result[0] = ''
         t = threading.Thread(target=reader, daemon=True)
         t.start()
         t.join(timeout=0.05)
-        return result[0] if t.is_alive() else (result[0] or '')
+        return result[0] if t.is_alive() else result[0]
 
     def _read_line_nonblock(self, default=''):
         """Non-blocking read, returns default if no input."""

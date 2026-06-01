@@ -196,7 +196,6 @@ class DeepSeekSession:
         task_root = Path.home() / "XianRenZhang_tasks"
         if not task_root.exists():
             return None
-        # 找最新修改的任务目录
         dirs = sorted([d for d in task_root.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
         for d in dirs:
             conv_file = d / "conversation.json"
@@ -204,12 +203,46 @@ class DeepSeekSession:
                 try:
                     data = json.loads(conv_file.read_text(encoding="utf-8"))
                     url = data.get("url", "")
-                    # 验证是 DeepSeek URL
                     if url and "deepseek" in url.lower():
                         return url
                 except Exception:
                     pass
         return None
+
+    def list_conversations(self) -> list:
+        """返回所有历史会话列表，按时间倒序。永远不会返回 None。"""
+        import json, os
+        from pathlib import Path
+        from datetime import datetime
+        task_root = Path.home() / "XianRenZhang_tasks"
+        if not task_root.exists():
+            return []
+        result = []
+        try:
+            for d in sorted(task_root.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True):
+                if not d.is_dir():
+                    continue
+                conv_file = d / "conversation.json"
+                if conv_file.exists():
+                    try:
+                        data = json.loads(conv_file.read_text(encoding="utf-8"))
+                        msg_count = len(data.get("messages", []))
+                        try:
+                            ts = datetime.fromtimestamp(os.path.getmtime(conv_file)).strftime("%Y-%m-%d %H:%M")
+                        except Exception:
+                            ts = "?"
+                        result.append({
+                            "ts": ts,
+                            "url": data.get("url", ""),
+                            "messages": msg_count,
+                            "file_path": str(conv_file),
+                            "task_name": d.name,
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return result
 
     def get_history(self) -> List[Message]:
         return list(self._messages)
