@@ -341,17 +341,15 @@ class Terminal:
         """非阻塞读取，无输入时返回 default。永远返回字符串。"""
         r = self._read_line()
         return r if r else default
-
-        """非阻塞读取一行，超时返回默认值。Windows 兼容。"""
     def _copy_credentials_to_managed_dir(self):
         """将凭据复制到管理目录 ~/.xianrenzhang_agent/credentials/"""
         from agent_core.subagent_manager import CREDENTIALS_DIR
         CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
         target_cookie = CREDENTIALS_DIR / "deepseek_cookies.json"
-        
+
         if COOKIE_FILE.exists():
             shutil.copy2(COOKIE_FILE, target_cookie)
-            print(c(f"[OK] 凭据已复制到：{target_cookie}\n", GREEN))
+            print(c(f"[OK] 凭据已复制到{target_cookie}\n", GREEN))
         else:
             print(c("[WARN] 未找到凭据文件\n", YELLOW))
 
@@ -375,12 +373,6 @@ class Terminal:
         if self._sam:
             self._sam.set_notify_callback(_on_subagent_done)
 
-    def _read_line(self):
-        """读取用户输入，阻塞版本。永远返回字符串，EOF 时返回空字符串。"""
-        try:
-            return input(">>> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return ""
 
     async def _wait_user_input(self, question: str) -> str:
         """等待用户输入回答"""
