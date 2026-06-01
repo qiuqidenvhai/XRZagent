@@ -213,11 +213,16 @@ class Terminal:
         print(c("-" * 40 + "\n", GRAY))
 
         # 主循环
+        import sys
+        sys.stdout.write("[DEBUG] 主循环开始\n")
+        sys.stdout.flush()
         while self.running:
             # Ctrl+C 打断当前任务，回到输入模式
             if _INTERRUPT_REQUESTED:
                 _INTERRUPT_REQUESTED = False
                 print(c("\n[打断] 正在中断...\n", YELLOW))
+                sys.stdout.write("[DEBUG] 空输入，继续\n")
+                sys.stdout.flush()
                 continue  # 回到输入模式，不退出
             # 处理 ask 队列
             if self._ask_event.is_set():
@@ -228,17 +233,22 @@ class Terminal:
                     self._ask_future.set_result(answer)
                 continue
 
+            import sys
+            sys.stdout.write("[DEBUG] 准备读取输入...\n")
+            sys.stdout.flush()
             try:
                 raw = await asyncio.get_event_loop().run_in_executor(None, self._read_line)
             except (KeyboardInterrupt, EOFError):
                 print(c("\n[中断] 输入新指令继续\n", YELLOW))
                 _INTERRUPT_REQUESTED = False
                 continue
-
+            sys.stdout.write("[DEBUG] raw=" + repr(raw) + "\n")
+            sys.stdout.flush()
+            sys.stdout.write("[DEBUG] raw 检查: " + repr(raw) + "\n")
+            sys.stdout.flush()
             # 空输入/无效 → 继续等待，不退出
             if not raw or raw is None:
                 continue
-
             cmd = raw.lower()
             if cmd in ("quit", "exit", "q"):
                 self.running = False
