@@ -231,6 +231,31 @@ class Commander:
             task_checklist
         )
 
+        async def wait_minutes(**params):
+            """等待指定分钟数（Agent 自我等待，不消耗 AI 配额）。
+
+            用途：
+            - 等待任务完成（如等待子代理、文件处理等）
+            - 轮询检查状态（如等待某个条件满足）
+            - 避免频繁调用 AI
+
+            参数：
+            - minutes: float, 等待分钟数（支持小数，如 0.5 = 30 秒）
+            - check_interval: float, 检查间隔秒数（默认 5 秒）
+
+            返回：等待完成后返回 "[等待完成] 已等待 N 分钟"
+            """
+            minutes = float(params.get("minutes", 1))
+            total_secs = minutes * 60
+            await asyncio.sleep(total_secs)
+            return f"[等待完成] 已等待 {minutes:.1f} 分钟（{int(total_secs)} 秒）"
+
+        self._tools.register(
+            "wait_minutes",
+            "wait_minutes(minutes): 等待指定分钟数，不消耗 AI 配额，适合轮询等待",
+            wait_minutes
+        )
+
         # ══════════════════════════════════════════════════════
         # 自我诊断工具
         # ══════════════════════════════════════════════════════
@@ -239,7 +264,10 @@ class Commander:
             categories = {
                 "文件操作": ["file_write", "file_read", "file_append", "file_exists", "file_list", "dir_create", "file_delete", "file_append"],
                 "浏览器自动化": ["browser_search", "browser_visit", "browser_screenshot", "browser_fill", "browser_click"],
-                "任务管理": ["task_checklist", "done", "ask"],
+                "任务管理": ["task_checklist", "done", "ask", "wait_minutes", "list_tasks"],
+                "联网获取": ["web_fetch", "browser_search"],
+                "剪贴板": ["clipboard_read", "clipboard_write"],
+                "等待工具": ["wait_minutes"],
                 "记忆系统": ["remember", "recall", "list_summaries"],
                 "自我修复": ["write_script", "shell_exec"],
                 "子代理": ["browser_research", "browser_visit", "check_task", "wait_task", "list_tasks"],
@@ -384,6 +412,43 @@ class Commander:
 
         self._tools.register("shell_exec", "执行Shell命令", shell_exec)
 
+        # ─── 剪贴板工具 ───
+        async def clipboard_read(**params):
+            """读取系统剪贴板内容。"""
+            try:
+                import tkinter as tk
+                r = tk.Tk()
+                r.withdraw()
+                content = r.clipboard_get()
+                r.destroy()
+                if not content:
+                    return "[剪贴板] 内容为空"
+                preview = content[:500]
+                suffix = f"\n...[共 {len(content)} 字符]" if len(content) > 500 else ""
+                return f"[剪贴板内容，共 {len(content)} 字符]\n{preview}{suffix}"
+            except Exception as e:
+                return f"[剪贴板读取错误] {str(e)}"
+
+        async def clipboard_write(**params):
+            """写入内容到系统剪贴板。"""
+            content = params.get("content", "")
+            if not content:
+                return "[错误] 缺少 content 参数"
+            try:
+                import tkinter as tk
+                r = tk.Tk()
+                r.withdraw()
+                r.clipboard_clear()
+                r.clipboard_append(content)
+                r.update()
+                r.destroy()
+                return f"[剪贴板] 已写入 {len(content)} 字符"
+            except Exception as e:
+                return f"[剪贴板写入错误] {str(e)}"
+
+        self._tools.register("clipboard_read", "读取系统剪贴板内容", clipboard_read)
+        self._tools.register("clipboard_write", "clipboard_write(content): 写入内容到系统剪贴板", clipboard_write)
+
         # ─── 自我修复工具：遇到错误时自动写脚本 ──
         async def write_script(**params):
             """遇到工具错误时，写 Python 脚本绕过并执行。
@@ -514,6 +579,81 @@ class Commander:
                 return "[错误] 搜索超时（60秒）"
             except Exception as e:
                 return f"[错误] {str(e)}"
+
+        # ─── Web Fetch 工具（联网获取任意 URL 内容）───
+        async def web_fetch(**params):
+            """从指定 URL 获取可读内容，类似于 OpenClaw 的 web_fetch 工具。
+
+            用途：
+            - 抓取任意网页的文本内容（去除 HTML 标签）
+            - 支持中文编码自动检测
+            - 适合获取文档、API JSON、新闻文章等纯文本内容
+
+            参数：
+            - url: str, 目标 URL（必填）
+            - max_chars: int, 最大返回字符数，默认 5000
+            - timeout: int, 超时秒数，默认 30
+
+            返回：抓取到的纯文本内容，或错误信息
+            """
+            import urllib.request
+            import urllib.error
+            import html as html_module
+            import re as regex_module
+
+            url = params.get("url", "").strip()
+            max_chars = int(params.get("max_chars", 5000))
+            timeout = int(params.get("timeout", 30))
+
+            if not url:
+                return "[错误] 缺少 url 参数"
+
+            if not url.startswith(("http://", "https://")):
+                return f"[错误] url 必须以 http:// 或 https:// 开头: {url}"
+
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    content = resp.read()
+                    encoding = resp.headers.get_content_charset() or "utf-8"
+                    try:
+                        text = content.decode(encoding, errors="replace")
+                    except Exception:
+                        text = content.decode("utf-8", errors="replace")
+
+            except urllib.error.HTTPError as e:
+                return f"[HTTP 错误] {e.code} {e.reason}"
+            except urllib.error.URLError as e:
+                return f"[URL 错误] {str(e.reason)}"
+            except Exception as e:
+                return f"[错误] {str(e)}"
+
+            # HTML 标签清理
+            text = regex_module.sub(r'<script[^>]*>.*?</script>', '', text, flags=regex_module.DOTALL | regex_module.IGNORECASE)
+            text = regex_module.sub(r'<style[^>]*>.*?</style>', '', text, flags=regex_module.DOTALL | regex_module.IGNORECASE)
+            text = regex_module.sub(r'<[^>]+>', ' ', text)
+            # HTML 实体解码
+            try:
+                text = html_module.unescape(text)
+            except Exception:
+                pass
+            # 清理多余空白
+            text = regex_module.sub(r'[ \t]+', ' ', text)
+            text = regex_module.sub(r'\n\s*\n', '\n\n', text).strip()
+
+            if len(text) > max_chars:
+                text = text[:max_chars] + f"\n\n[...内容已截断至 {max_chars} 字符，原文共 {len(text)} 字符]"
+
+            return text
+
+        self._tools.register("web_fetch", "web_fetch(url, max_chars=5000): 抓取任意 URL 的可读文本内容，去除 HTML 标签", web_fetch)
 
         # ─── 深度思考工具（母代理执行，AI 调用）───
         async def _deep_think_tool(**params):
@@ -821,7 +961,29 @@ RAW 命令格式（直接执行shell）：
         self._current_task = user_instruction
         self._task_start_turn = turn
         self._give_up_count = 0
-        self._checklist_require = True  # 每个新任务强制要求先建清单
+        # 任务进度持久化：启动时自动恢复已有清单（新任务才强制建清单）
+        checklist_file = Path(self._work_dir) / "_current_checklist.json"
+        if checklist_file.exists():
+            try:
+                data = _json.loads(checklist_file.read_text(encoding="utf-8"))
+                # 如果任务名相同或包含关系，认为是恢复任务，不需要重建清单
+                saved_task = data.get("task", "")
+                if saved_task and (saved_task in user_instruction or user_instruction in saved_task):
+                    self._current_checklist = data
+                    remaining = [i for i, it in enumerate(data["items"]) if not it.get("done")]
+                    self._emit(EventType.CORRECTION_SENT, {
+                        "type": "checklist_restored",
+                        "task": saved_task,
+                        "remaining": len(remaining),
+                        "total": len(data["items"])
+                    })
+                    self._checklist_require = False  # 已恢复，不用强制重建
+                else:
+                    self._checklist_require = True  # 新任务，强制建清单
+            except Exception:
+                self._checklist_require = True
+        else:
+            self._checklist_require = True  # 无清单文件，强制建清单
 
         while turn < max_turns and self._running:
             turn += 1

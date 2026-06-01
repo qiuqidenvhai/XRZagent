@@ -1,25 +1,16 @@
 import signal
 import sys
-import asyncio
 
 # ════════════════════════════════════════════════════════════
-# Ctrl+C 优雅关闭（不在 asynio.run 层面抛异常）
+# Ctrl+C 优雅关闭
 # ════════════════════════════════════════════════════════════
 _SHUTDOWN_REQUESTED = False
 
 def _sigint_handler(signum, frame):
-    """收到 Ctrl+C 时：只设置标志，不杀进程，让当前命令执行完再退"""
     global _SHUTDOWN_REQUESTED
     if not _SHUTDOWN_REQUESTED:
         _SHUTDOWN_REQUESTED = True
-        # 打印提示（立即flush）
-        print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）\n", end="", flush=True)
-        # 不要 raise KeyboardInterrupt！让它传播给 asyncio.run() 外面的 try 捕获
-        # 或者：直接 return，让 asyncio 事件循环自己处理善后
-        # 关键：不调用 sys.exit()，不抛异常，让程序自然结束
-
-
-async def main():
+        print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）", end="", flush=True)
 
 # Windows 控制台 UTF-8 支持（解决 emoji 等 Unicode 字符显示问题）
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -182,6 +173,11 @@ class Terminal:
 
         # 主循环
         while self.running:
+            # Ctrl+C 触发优雅关闭
+            if _SHUTDOWN_REQUESTED:
+                print("\n[关闭] 正在保存状态...\n")
+                self.running = False
+                break
             # 处理 ask 队列
             if self._ask_event.is_set():
                 self._ask_event.clear()
@@ -444,9 +440,18 @@ class Terminal:
             print(c("[思考] 当前无思考内容", GRAY))
     
     async def _shutdown(self):
+        """优雅关闭：关闭浏览器 + 保存 cookie"""
         if self.browser:
-            await self.browser.close()
-        print(c("\n再见\n", CYAN))
+            try:
+                await self.browser.close()
+            except Exception:
+                pass
+        if hasattr(self, 'session') and self.session:
+            try:
+                self.session.save_cookies()
+            except Exception:
+                pass
+        print(c("\n再见！仙人掌 Agent 下次见 🏜️\n", CYAN))
 
     def _on_event(self, event):
         etype = event.event_type
@@ -482,21 +487,12 @@ class Terminal:
 
 
 async def main():
+    # 注册 Ctrl+C 信号处理器
+    if sys.platform != "win32":
+        signal.signal(signal.SIGINT, _sigint_handler)
     terminal = Terminal()
     await terminal.run()
 
 
 if __name__ == "__main__":
-    # 注册 Ctrl+C 处理器（仅在主进程生效）
-    if sys.platform != "win32":
-        signal.signal(signal.SIGINT, _sigint_handler)
-    else:
-        # Windows：Python 3.10+ 的 asyncio.run 会处理 SIGINT
-        # 我们在外层 try 捕获 KeyboardInterrupt 做优雅关闭
-        pass
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n[关闭] 仙人掌 Agent 已退出。下次见！")
-    except Exception as e:
-        print(f"\n[致命错误] {e}")
+    asyncio.run(main())
