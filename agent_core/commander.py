@@ -147,8 +147,6 @@ class Commander:
         # 任务清单状态
         self._checklist_require: bool = True   # 强制要求先建清单
         self._current_checklist: dict = {}      # {"task": "...", "items": [...]}
-        # 内部辅助函数
-        self._escape_json = _escape_json
 
         # 先注册工具，再构建系统提示词（提示词依赖工具列表）
         self._register_tools()
@@ -865,6 +863,15 @@ class Commander:
     # 系统提示词
     # ============================================================
 
+    def pause(self):
+        """暂停 Agent（terminal 调用），Agent 在当前回合结束后等待"""
+        self._paused = True
+
+    def resume(self):
+        """恢复 Agent 执行（terminal 调用）"""
+        if self._paused:
+            self._paused = False
+
     def _build_system_prompt(self) -> str:
         """构建系统提示词（包含所有可用工具）"""
         tool_desc_list = []
@@ -961,6 +968,7 @@ RAW 命令格式（直接执行shell）：
         self._current_task = user_instruction
         self._task_start_turn = turn
         self._give_up_count = 0
+        self._paused = False  # 暂停标志：由 terminal.py 通过 pause()/resume() 控制
         # 任务进度持久化：启动时自动恢复已有清单（新任务才强制建清单）
         checklist_file = Path(self._work_dir) / "_current_checklist.json"
         if checklist_file.exists():
@@ -986,6 +994,22 @@ RAW 命令格式（直接执行shell）：
             self._checklist_require = True  # 无清单文件，强制建清单
 
         while turn < max_turns and self._running:
+            # 暂停时等待用户继续
+            if self._paused:
+                pause_msg = (
+                    "\n[PAUSED] Agent 已暂停。\n"
+                    "  - 输入: 继续 / c / resume → 恢复执行\n"
+                    "  - 输入: 状态 / s        → 查看当前进度\n"
+                    "  - 输入: 清单 / l        → 查看任务清单\n"
+                    "  - 输入: 放弃任务 / q    → 强制结束当前任务\n\n"
+                    "请输入指令: "
+                )
+                self._emit(EventType.AI_FINAL_REPLY, {"reply": pause_msg})
+                # 等待 terminal 调用 resume()
+                while self._paused and self._running:
+                    await asyncio.sleep(0.5)
+                if not self._running:
+                    return "[退出] Agent 已关闭"
             turn += 1
             self._history_turns += 1
 
@@ -1065,6 +1089,14 @@ RAW 命令格式（直接执行shell）：
                 self._checklist_require = True
                 continue
 
+            # === 暂停检查：Agent 执行中途可被用户暂停 ===
+            if self._paused:
+                self._emit(EventType.AI_FINAL_REPLY, {
+                    "reply": "\n[PAUSED] Agent 已暂停（工具执行中途）...\n请在终端输入: 继续 / c\n"
+                })
+                # 等待 resume() 被调用（terminal.py 会调用）
+                while self._paused and self._running:
+                    await asyncio.sleep(0.3)
 
             self._emit(EventType.COMMAND_DETECTED, {"tool": cmd.command.tool, "id": cmd.id})
             self._emit(EventType.TOOL_START, {"tool": cmd.command.tool})

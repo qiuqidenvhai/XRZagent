@@ -205,9 +205,13 @@ class Terminal:
             if cmd == "p":
                 if self.pause.is_paused():
                     self.pause.resume()
+                    if self.commander:
+                        self.commander.resume()
                     print(c("[已继续]\n", GREEN))
                 else:
                     self.pause.pause()
+                    if self.commander:
+                        self.commander.pause()
                     print(c("[已暂停，输入 p 继续]\n", YELLOW))
                 continue
             if cmd == "new":
@@ -218,6 +222,20 @@ class Terminal:
                 self._register_subagent_callback()
                 print(c("任务已创建，从头开始\n", GREEN))
                 continue
+            if cmd in ("continue", "c", "继续"):
+                self.pause.resume()
+                if self.commander:
+                    self.commander.resume()
+                print(c("[已继续执行]\n", GREEN))
+                continue
+
+            if cmd in ("pause", "暂停", "中断"):
+                self.pause.pause()
+                if self.commander:
+                    self.commander.pause()
+                print(c("[已暂停，输入 p 或 继续 恢复]\n", YELLOW))
+                continue
+
             if cmd in ("deep", "think"):
                 self.session.toggle_thinking()
                 mode = "深度思考" if self.session.thinking_mode else "快速模式"
