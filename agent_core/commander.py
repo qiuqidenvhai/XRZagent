@@ -142,6 +142,8 @@ class Commander:
         self._give_up_count: int = 0
         # 记录上一个工具执行结果（用于 done 验证）
         self._last_tool_result: Optional[ExecutionResult] = None
+        # 统计每个工具连续失败次数，连续失败3次以上建议写脚本
+        self._tool_error_count: dict = {}
 
         # 先注册工具，再构建系统提示词（提示词依赖工具列表）
         self._register_tools()
@@ -254,6 +256,71 @@ class Commander:
                 return f"执行错误: {e}"
 
         self._tools.register("shell_exec", "执行Shell命令", shell_exec)
+
+        # ─── 自我修复工具：遇到错误时自动写脚本 ──
+        async def write_script(**params):
+            """遇到工具错误时，写 Python 脚本绕过并执行。
+            
+            当 browser_search 或其他工具连续失败时，用此工具写并执行 Python 脚本。
+            Python 代码直接在系统 Python 环境执行，可调用 urllib、requests 等库。
+            """
+            import tempfile, subprocess, sys as _sys, os
+            from pathlib import Path
+
+            code = params.get("content", "")
+            filename = params.get("filename", "")
+            timeout = params.get("timeout", 60)
+            work_dir = Path(self._work_dir)
+
+            if not code:
+                return "[错误] 缺少 Python 代码 content 参数"
+
+            # 确定脚本路径
+            if filename:
+                script_path = work_dir / filename if not Path(filename).is_absolute() else Path(filename)
+            else:
+                script_path = work_dir / f"_fix_script_{int(__import__('time').time()*1000)}.py"
+
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 写入脚本（自动添加 UTF-8 编码声明）
+            header = "# -*- coding: utf-8 -*-\nimport sys\n"
+            if "sys.stdout" not in code and "reconfigure" not in code:
+                header += "sys.stdout.reconfigure(encoding='utf-8', errors='replace')\n"
+            if "Path(" in code and "from pathlib" not in code:
+                header += "from pathlib import Path\n"
+
+            full_code = header + code
+            script_path.write_text(full_code, encoding="utf-8")
+
+            # 执行脚本
+            try:
+                result = subprocess.run(
+                    [_sys.executable, str(script_path)],
+                    capture_output=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout,
+                    cwd=str(work_dir),
+                )
+                output = result.stdout if result.stdout else ""
+                err = result.stderr if result.stderr else ""
+                msg = f"[脚本执行完毕] {script_path.name}\n[退出码 {result.returncode}]"
+                if output:
+                    msg += f"\n--- stdout ---\n{output[:2000]}"
+                if err:
+                    msg += f"\n--- stderr ---\n{err[:500]}"
+                return msg
+            except subprocess.TimeoutExpired:
+                return f"[错误] 脚本执行超时（>{timeout}秒）"
+            except Exception as e:
+                return f"[错误] 脚本执行失败: {e}"
+
+        self._tools.register(
+            "write_script",
+            "遇到工具错误时写Python脚本绕过：content=Python代码, filename=可选脚本名, timeout=超时(秒)",
+            write_script
+        )
 
         # ─── 浏览器操作工具（母代理直接执行）───
 
@@ -566,6 +633,7 @@ RAW 命令格式（直接执行shell）：
 4. 如需多步骤，请分多次发送工具调用
 5. 任务完成后，发送 done() 表示结束
 6. 如需用户输入，使用 ask("问题")
+7. **遇到工具错误 → 必须用 write_script 写 Python 脚本绕过，不准放弃**
 
 === 强制规则（绝对禁止违反）===
 🚫 不准找借口：遇到错误继续尝试，不准说"由于...无法..."
@@ -573,6 +641,7 @@ RAW 命令格式（直接执行shell）：
 🚫 不准推卸：不能要求用户手动操作，必须AI自己完成
 🚫 不准虚报：不能说任务完成了但实际上文件都没生成
 🚫 不准退出：在用户目标真正达成之前，不准结束任务
+🚫 工具连续失败3次 → 必须写脚本绕过，不准停
 
 === 子代理规则 ===
 - browser_research: 启动独立研究子代理（后台运行，不阻塞母代理）
@@ -691,6 +760,22 @@ RAW 命令格式（直接执行shell）：
             result = await self._execute_command(cmd.command)
             # 记录最后工具结果（供 done 验证用）
             self._last_tool_result = result
+
+            # 工具连续失败3次以上 → 强制写脚本绕过
+            tool_name = cmd.command.tool
+            if result.status == "error":
+                self._tool_error_count[tool_name] = self._tool_error_count.get(tool_name, 0) + 1
+                if self._tool_error_count[tool_name] >= 3:
+                    self._emit(EventType.CORRECTION_SENT, {"type": "tool_repeated_error", "tool": tool_name})
+                    current_input = (
+                        f"[SYSTEM] ⚠️ 工具 {tool_name} 已连续失败 3 次，错误: {str(result.error)[:80]}"
+                        f"\n→ 必须使用 write_script 工具写 Python 脚本绕过此工具。"
+                        f"\n→ 不准放弃，不准说无法完成。"
+                    )
+                    self._tool_error_count[tool_name] = 0
+                    continue
+            else:
+                self._tool_error_count[tool_name] = 0  # 成功则重置
 
             self._emit(EventType.TOOL_END, {"tool": cmd.command.tool, "status": result.status})
             self._emit(EventType.COMMAND_SUCCESS if result.status == "success" else EventType.COMMAND_ERROR, result)
