@@ -1334,6 +1334,8 @@ RAW 命令格式（直接执行shell）：
         if result is None:
             return {"allowed": False, "reason": "没有任何工具执行记录"}
 
+        reasons = []
+
         # === 清单完成度检查 ===
         checklist_file = Path(self._work_dir) / "_current_checklist.json"
         if checklist_file.exists():
@@ -1348,8 +1350,6 @@ RAW 命令格式（直接执行shell）：
         task_keywords = self._current_task.lower()
         output = (result.output or "").lower()
         error = (result.error or "").lower()
-
-        reasons = []
 
         # 检查是否有生成文件
         file_generated = any(
