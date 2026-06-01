@@ -140,6 +140,8 @@ class Commander:
         self._task_start_turn: int = 0
         # 统计放弃次数（超过阈值更强力纠正）
         self._give_up_count: int = 0
+        # 记录上一个工具执行结果（用于 done 验证）
+        self._last_tool_result: Optional[ExecutionResult] = None
 
         # 先注册工具，再构建系统提示词（提示词依赖工具列表）
         self._register_tools()
@@ -198,6 +200,40 @@ class Commander:
         self._tools.register("dir_create", "创建目录", dir_create)
         self._tools.register("file_delete", "删除文件/目录", file_delete)
 
+        # ─── 追加/检查工具（补充缺失功能）───
+        async def file_append(**params):
+            p = Path(params.get("path", ""))
+            content = params.get("content", "")
+            full_path = Path(self._work_dir) / p if not p.is_absolute() else p
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(full_path, "a", encoding="utf-8") as f:
+                f.write(content)
+            return f"内容已追加到: {full_path}"
+
+        async def file_exists(**params):
+            p = Path(params.get("path", ""))
+            full_path = Path(self._work_dir) / p if not p.is_absolute() else p
+            return f"{'存在' if full_path.exists() else '不存在'}: {full_path}"
+
+        async def list_tasks(**params):
+            """列出当前所有活跃子代理任务"""
+            if not self._subagent_manager:
+                return "子代理管理器未初始化"
+            all_tasks = self._subagent_manager.check_all_tasks()
+            if not all_tasks:
+                return "当前无活跃任务"
+            lines = []
+            for task_info in all_tasks:
+                tid = task_info.get("task_id", "?")
+                status = task_info.get("status", "?")
+                stype = task_info.get("task_type", "?")
+                lines.append(f"[{status}] {tid} ({stype})")
+            return "\n".join(lines) if lines else "当前无活跃任务"
+
+        self._tools.register("file_append", "追加内容到文件", file_append)
+        self._tools.register("file_exists", "检查文件是否存在", file_exists)
+        self._tools.register("list_tasks", "列出所有子代理任务", list_tasks)
+
         # ─── Shell 执行工具 ───
         async def shell_exec(**params):
             import asyncio
@@ -210,7 +246,7 @@ class Commander:
                     stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='ignore')}\n{stderr.decode('utf-8', errors='ignore')}"
+                return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='replace')}\n{stderr.decode('utf-8', errors='replace')}"
             except asyncio.TimeoutError:
                 proc.kill()
                 return f"命令超时（>{timeout}s）"
@@ -593,7 +629,7 @@ RAW 命令格式（直接执行shell）：
             self._history_turns += 1
 
             # 记忆提醒
-            if self._memory and self._history_turns % 10 == 0:
+            if self._memory and self._history_turns % 20 == 0:
                 self._emit(EventType.MEMORY_REMINDER, {"turn": self._history_turns})
 
             # 发送给 AI
@@ -653,13 +689,15 @@ RAW 命令格式（直接执行shell）：
             self._emit(EventType.TOOL_START, {"tool": cmd.command.tool})
 
             result = await self._execute_command(cmd.command)
+            # 记录最后工具结果（供 done 验证用）
+            self._last_tool_result = result
 
             self._emit(EventType.TOOL_END, {"tool": cmd.command.tool, "status": result.status})
             self._emit(EventType.COMMAND_SUCCESS if result.status == "success" else EventType.COMMAND_ERROR, result)
 
             # === done() 验证：任务没完成不准退出 ===
             if cmd.command.tool == "done":
-                done_result = self._validate_task_done(result, user_instruction)
+                done_result = self._validate_task_done()
                 if not done_result["allowed"]:
                     # 任务未完成，强制继续
                     self._emit(EventType.CORRECTION_SENT, {"reason": done_result["reason"]})
@@ -765,13 +803,17 @@ RAW 命令格式（直接执行shell）：
                 return m.group(0)
         return ""
 
-    def _validate_task_done(self, result: ExecutionResult, original_task: str) -> dict:
+    def _validate_task_done(self) -> dict:
         """
         验证任务是否真的完成了。只有在以下情况才允许 done：
-        1. 文件已生成（检查输出中是否含路径）
+        1. 文件已生成（检查最后工具输出中是否含路径）
         2. 工具执行全部成功
         3. 有明确的完成标志
         """
+        result = self._last_tool_result
+        if result is None:
+            return {"allowed": False, "reason": "没有任何工具执行记录"}
+        
         task_keywords = self._current_task.lower()
         output = (result.output or "").lower()
         error = (result.error or "").lower()
@@ -799,7 +841,7 @@ RAW 命令格式（直接执行shell）：
             key_expectations.append("创建" if "创建" in task_keywords else "生成")
 
         for kw in key_expectations:
-            if kw not in output and kw not in result.output:
+            if kw not in output:
                 reasons.append(f"未完成：缺少「{kw}」相关内容")
 
         if reasons:
