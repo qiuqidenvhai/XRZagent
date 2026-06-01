@@ -333,10 +333,33 @@ class Commander:
             return "\n".join([f"{'[DIR]' if i.is_dir() else '[FILE]'} {i.name}" for i in items])
 
         async def dir_create(**params):
+            import asyncio, subprocess, sys as _sys, os as _os
             p = Path(params.get("path", ""))
-            full_path = Path(self._work_dir) / p if not p.is_absolute() else p
-            full_path.mkdir(parents=True, exist_ok=True)
-            return f"目录已创建: {full_path}"
+            # 展开 ~ 和环境变量
+            path_str = str(p.expanduser()) if "~" in str(p) else str(p)
+            for ev in ["USERPROFILE", "HOME", "APPDATA", "TEMP"]:
+                if ev in _os.environ:
+                    path_str = path_str.replace(f"%{ev}%", _os.environ[ev]).replace(f"${ev}", _os.environ[ev])
+            # 用 PowerShell New-Item（直接走 Windows API，Unicode 安全）
+            _ps_path = path_str.replace("'", "''")
+            _ps_cmd = f"New-Item -ItemType Directory -Force -Path '{_ps_path}' | Out-Null; Write-Host 'DIR_OK'"
+            cmd = ["powershell", "-NoProfile", "-Command", _ps_cmd]
+            try:
+                proc = await asyncio.create_subprocess_exec(*cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+                if proc.returncode == 0:
+                    resolved = Path(path_str).resolve()
+                    return f"目录已创建: {resolved}"
+                else:
+                    err = stderr.decode("utf-8", errors="replace").strip()
+                    return f"[错误] {err}"
+            except asyncio.TimeoutExpired:
+                proc.kill()
+                return "[错误] dir_create 超时"
+            except Exception as e:
+                return f"[错误] {e}"
 
         async def file_delete(**params):
             p = Path(params.get("path", ""))
@@ -395,6 +418,27 @@ class Commander:
             import asyncio
             cmd = params.get("command", "")
             timeout = params.get("timeout", 60)
+            # 检测命令是否含非ASCII字符（中文路径等），用PowerShell执行避免编码问题
+            try:
+                import re
+                has_non_ascii = bool(re.search(r'[^\x00-\x7F]', cmd))
+            except Exception:
+                has_non_ascii = False
+            if has_non_ascii:
+                # 用 PowerShell 转发，-Command 会正确处理 Unicode
+                pwsh_cmd = ["powershell", "-NoProfile", "-Command", cmd]
+                try:
+                    proc = await asyncio.create_subprocess_exec(*pwsh_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE)
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                    return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='replace')}\n{stderr.decode('utf-8', errors='replace')}"
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    return f"命令超时（>{timeout}s）"
+                except Exception as e:
+                    return f"执行错误: {e}"
+            # 普通命令走原生 shell
             try:
                 proc = await asyncio.create_subprocess_shell(
                     cmd,
