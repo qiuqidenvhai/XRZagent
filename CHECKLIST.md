@@ -1,144 +1,161 @@
 # 功能清单 — 逐项核对
 
 生成时间：2026-06-01
-
-## 一、用户明确要求的功能（除图形界面外）
-
-### 1.1 核心协议
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| @@@@ JSON 包裹符协议 | 必须使用 @@@@ 包裹 JSON | protocol.py | ⏳ | 发纯文本测试拦截 |
-| 自动修复反斜杠/驱动器号 | JSON 错误自动修复 | protocol.py _try_fix | ⏳ | 发送带 C:Users 的 JSON |
-| 自动修复尾部逗号 | JSON 错误自动修复 | protocol.py _try_fix | ⏳ | 发送带尾部逗号的 JSON |
-| RAW 命令协议 | <<<RAW>>> 包裹 shell 命令 | protocol.py | ⏳ | 发送 RAW 命令 |
-| 多指令拦截 | 一次只执行一个指令 | commander.py | ⏳ | 发送多个 @@@@ |
-
-### 1.2 工具系统
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| file_write | 写文件 | commander.py | ⏳ | 写测试文件 |
-| file_read | 读文件 | commander.py | ⏳ | 读取上一步文件 |
-| file_append | 追加内容 | commander.py | ⏳ | 追加内容到文件 |
-| file_delete | 删除文件 | commander.py | ⏳ | 删除测试文件 |
-| file_exists | 检查文件存在 | commander.py | ⏳ | 检查存在/不存在文件 |
-| dir_create | 创建目录 | commander.py | ⏳ | 创建测试目录 |
-| dir_list | 列出目录 | commander.py | ⏳ | 列出测试目录 |
-| shell_exec | 执行 Shell 命令 | commander.py | ⏳ | 执行 echo 测试 |
-| done | 结束任务（需双验证） | commander.py | ⏳ | 提交无文件的结果 |
-| ask | 向用户提问 | commander.py | ⏳ | 发送 ask 指令 |
-| docx_create | 生成 Word 文档 | commander.py | ⏳ | 创建 .docx 文件 |
-| pptx_create | 生成 PPT | commander.py | ⏳ | 创建 .pptx 文件 |
-| remember | 保存记忆 | commander.py | ⏳ | 调用 remember |
-| recall | 检索记忆 | commander.py | ⏳ | 调用 recall |
-| summarize | 摘要保存 | commander.py | ⏳ | 调用 summarize |
-| list_summaries | 列出摘要 | commander.py | ⏳ | 调用 list_summaries |
-
-### 1.3 浏览器自动化
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| browser_search | 网页搜索 | commander.py | ⏳ | 搜索测试 |
-| browser_visit | 访问 URL | commander.py | ⏳ | 访问页面 |
-| browser_screenshot | 截图 | commander.py | ⏳ | 截取当前页面 |
-| browser_fill | 填写表单 | commander.py | ⏳ | 填写输入框 |
-| browser_click | 点击元素 | commander.py | ⏳ | 点击按钮 |
-
-### 1.4 子代理系统
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| browser_research | 后台研究任务 | subagent_manager.py | ⏳ | 派发研究任务 |
-| check_task | 检查任务状态 | subagent_manager.py | ⏳ | 查询任务 ID |
-| wait_task | 等待任务完成 | subagent_manager.py | ⏳ | 等待任务结果 |
-| list_tasks | 列出所有任务 | subagent_manager.py | ⏳ | 列出活跃任务 |
-| 独立 Playwright 实例 | 子代理用独立浏览器 | subagent.py | ⏳ | 观察子代理日志 |
-| cookie 凭据复用 | 子代理复用登录状态 | subagent_main.py | ⏳ | 子代理是否仍需登录 |
-| 日志重定向 | 子代理输出到 .log 文件 | subagent_manager.py | ⏳ | 查看 log 文件 |
-
-### 1.5 安全与拦截
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| 纯文本拦截 | 非 @@@@ 输出自动纠正 | commander.py | ⏳ | 发送纯文本 |
-| 放弃句式拦截 | 检测"由于...无法"等 13 种 | commander.py | ⏳ | AI 说放弃时的反应 |
-| done 双验证 | 无文件/有错误时不放行 | commander.py | ⏳ | 提交不完整结果 |
-| Ctrl+C 安全处理 | 不杀子代理 | terminal.py | ⏳ | Ctrl+C 测试 |
-| Ctrl+C graceful shutdown | 优雅关闭 | terminal.py | ⏳ | 关闭时是否清理 |
-
-### 1.6 记忆系统
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| 每 20 轮提醒 | 自动提醒保存记忆 | commander.py | ⏳ | 运行 20+ 轮 |
-| 对话轮次持久化 | 记录到文件 | memory_manager.py | ⏳ | 检查记忆文件 |
-| 新建任务 new | 新建任务目录 | terminal.py | ⏳ | new 命令 |
-
-### 1.7 深度思考
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| deep/think 命令 | 切换思考模式 | terminal.py | ⏳ | 发送 deep 命令 |
-| 思考内容抓取 | 显示 AI 思考过程 | session.py | ⏳ | 开启后观察 |
-| 思考内容显示 | 在终端打印 | terminal.py | ⏳ | 查看终端输出 |
-
-### 1.8 暂停与控制
-| 功能 | 要求 | 代码位置 | 状态 | 验证方法 |
-|------|------|----------|------|----------|
-| p 命令暂停/恢复 | 暂停 Agent 运行 | terminal.py | ⏳ | p 命令 |
-| quit/exit/q | 退出终端 | terminal.py | ⏳ | quit 命令 |
-| clear | 清屏 | terminal.py | ⏳ | clear 命令 |
+最后更新：2026-06-01 12:33
 
 ---
 
-## 二、系统自身需要的功能
+## 一、当前任务（用户布置的正在执行的任务）
 
-### 2.1 编码与国际化
-| 功能 | 代码位置 | 状态 | 验证方法 |
-|------|----------|------|----------|
-| UTF-8 输出 | terminal.py | ⏳ | emoji 不乱码 |
-| GBK → UTF-8 转换 | subprocess 调用 | ⏳ | web_searcher 输出 |
-| 中文路径支持 | 各文件操作 | ⏳ | 中文目录/文件名 |
+### 任务：每日新闻收集 + 月度总结
 
-### 2.2 错误处理
-| 功能 | 代码位置 | 状态 | 验证方法 |
-|------|----------|------|----------|
-| 超时处理 | subprocess timeout | ⏳ | 故意超时 |
-| 异常不崩溃 | 各模块 try/except | ⏳ | 触发错误 |
+> **在桌面开一个文件夹，搜集2025年到今天每天的新闻（国际局势、科技突破、财经数据），每天写一个 md，每个月总结各个事件的互相关联。遇到工具错误就自己写脚本，不要使用子代理。**
 
-### 2.3 日志与调试
-| 功能 | 代码位置 | 状态 | 验证方法 |
-|------|----------|------|----------|
-| 工具执行日志 | _on_event terminal.py | ⏳ | 观察终端 |
-| 子代理日志文件 | subagent_{id}.log | ⏳ | 查看文件 |
-| 记忆文件 | memory_manager.py | ⏳ | 检查目录 |
+| 阶段 | 要求 | 状态 | 备注 |
+|------|------|------|------|
+| 建目录 | 桌面创建 `2025-2026_News_Archive` | ✅ 完成 | |
+| 写脚本 | 遇到工具错误自己写脚本 | ❌ 未实现 | 还没做到 |
+| 日报收集 | 每天一个 md（365+ 天） | ❌ 进行中 | 正在执行 |
+| 月度总结 | 每月总结事件关联 | ❌ 未开始 | |
+| 不使用子代理 | 子代理功能目前难用 | ⚠️ 按要求 | 子代理已可用但用户要求停用 |
 
 ---
 
-## 三、逐项验证记录
+## 二、用户明确要求的功能（除图形界面外）
 
-### 2026-06-01 第一轮核对
+### 2.1 核心协议
+| 功能 | 要求 | 代码位置 | 状态 | 备注 |
+|------|------|----------|------|------|
+| @@@@ JSON 包裹符协议 | 必须使用 @@@@ | protocol.py | ✅ 已修复 | |
+| 自动修复反斜杠/驱动器号 | JSON 错误自动修复 | protocol.py | ✅ 已修复 | |
+| 自动修复尾部逗号 | JSON 错误自动修复 | protocol.py | ✅ 已修复 | |
+| RAW 命令协议 | <<<RAW>>> 包裹 shell | protocol.py | ✅ | |
+| 多指令拦截 | 一次只执行一个 | commander.py | ✅ | |
 
-#### 发现的问题
+### 2.2 文件操作工具
+| 功能 | 用户提过 | 代码位置 | 状态 |
+|------|----------|----------|------|
+| file_write | ✓ | commander.py | ✅ |
+| file_read | ✓ | commander.py | ✅ |
+| file_append | ✓ | commander.py | ✅ 已补充 |
+| file_delete | ✓ | commander.py | ✅ |
+| file_exists | ✓ | commander.py | ✅ 已补充 |
+| dir_create | ✓ | commander.py | ✅ |
+| dir_list (file_list) | ✓ | commander.py | ✅ |
+| shell_exec | ✓ | commander.py | ✅ |
 
-| 功能 | 状态 | 原因/修复 |
-|------|------|----------|
-| `done` 双验证 | 🔴 严重bug | `_validate_task_done(result)` 检查的是 `done` 工具自己的输出（"用户确认结束"），永远不含文件扩展名 → 永远返回 allowed=False。修复：改用 `self._last_tool_result` 记录最后工具输出 |
-| 轮次提醒 | 🟡 错误 | `% 10 == 0`（10轮），应为 `% 20 == 0`（20轮）。已修正 |
-| `file_append` 工具 | 🔴 缺失 | 用户明确提到过，但未注册。已补充 |
-| `file_exists` 工具 | 🔴 缺失 | 未注册。已补充 |
-| `list_tasks` 工具 | 🟡 缺失 | 未注册（subagent_manager 有 `check_all_tasks`）。已补充 `list_tasks` 工具调用 `check_all_tasks()` |
-| `shell_exec` decode | 🟢 小问题 | `errors='ignore'` 应为 `errors='replace'`，已修正 |
-| `done` 注册方式 | ✅ 正常 | `done` 在 `_execute_command` 里特殊处理，不需要 `_tools.register` |
-| `ask` 注册方式 | ✅ 正常 | 同上 |
-| `纯文本拦截` | ✅ 正常 | 有实现（cmds为空时发 NO @@@@ PROTOCOL 纠正） |
-| `放弃句式拦截` | ✅ 正常 | 有实现（14种黑名单） |
-| `pause 命令` | ✅ 正常 | terminal.py 用 `cmd == "p"`（双引号） |
-| `signal.SIGINT` | ✅ 正常 | 有 `import signal`，PauseManager 处理 |
+### 2.3 浏览器自动化
+| 功能 | 代码位置 | 状态 |
+|------|----------|------|
+| browser_search | commander.py | ✅ |
+| browser_visit | commander.py | ✅ |
+| browser_screenshot | commander.py | ✅ |
+| browser_fill | commander.py | ✅ |
+| browser_click | commander.py | ✅ |
 
-#### 修复后 commit: f9c8a32
+### 2.4 文档生成
+| 功能 | 状态 |
+|------|------|
+| docx_create | ⚠️ 中文编码待验证 |
+| pptx_create | ⚠️ 中文编码待验证 |
 
-#### 待人工验证（在终端测试）
+### 2.5 记忆系统
+| 功能 | 状态 |
+|------|------|
+| remember | ✅ |
+| recall | ✅ |
+| summarize | ✅ |
+| list_summaries | ✅ |
+| 每 20 轮提醒 | ✅ 已修正（原来是10轮） |
+
+---
+
+## 三、Agent 自身需要具备的能力（自我修复/自我管理）
+
+> 这是 Agent 系统自己需要有的能力，不只是工具，是"元能力"。
+
+### 3.1 错误自愈能力
+| 能力 | 描述 | 代码位置 | 状态 | 备注 |
+|------|------|----------|------|------|
+| JSON 自动修复 | 协议解析失败时自动修复 | protocol.py | ✅ | 反斜杠/驱动器号/尾部逗号 |
+| subprocess 编码 | 避免 GBK 崩溃 | commander.py | ✅ | encoding='utf-8' |
+| 工具报错不崩溃 | try/except 包裹 | 各工具 | ⚠️ 待检查 | |
+| 遇到工具错误自己写脚本 | 用户明确要求 | - | ❌ 未实现 | **待实现** |
+
+### 3.2 安全拦截机制
+| 能力 | 描述 | 代码位置 | 状态 |
+|------|------|----------|------|
+| 纯文本拦截 | 非 @@@@ 输出自动纠正 | commander.py | ✅ |
+| 放弃句式拦截 | 13 种黑名单 | commander.py | ✅ |
+| done 双验证 | 无文件/有错误时不放行 | commander.py | ✅ 已修复 bug |
+| 多指令拦截 | 一次只执行一个 | commander.py | ✅ |
+
+### 3.3 自我管理能力
+| 能力 | 描述 | 代码位置 | 状态 |
+|------|------|----------|------|
+| 轮次提醒 | 每 20 轮提醒保存记忆 | commander.py | ✅ |
+| Ctrl+C 安全处理 | 不传播到子代理 | terminal.py | ⚠️ 待验证 |
+| 优雅关闭 | graceful shutdown | terminal.py | ⚠️ 待验证 |
+| 任务持久化 | new 命令新建任务目录 | terminal.py | ✅ |
+| pause/resume | p 命令暂停/恢复 | terminal.py | ✅ |
+
+### 3.4 自我诊断能力
+| 能力 | 描述 | 代码位置 | 状态 |
+|------|------|----------|------|
+| 工具执行日志 | 终端打印执行详情 | terminal.py | ✅ |
+| 子代理日志文件 | 输出到 .log 文件 | subagent_manager.py | ✅ |
+| 错误追踪 | 异常堆栈输出 | 各模块 | ⚠️ 待检查 |
+| 记忆文件检查 | memory_manager | - | ⚠️ 待验证 |
+
+### 3.5 深度思考与控制
+| 能力 | 代码位置 | 状态 |
+|------|----------|------|
+| deep/think 命令切换 | terminal.py | ✅ |
+| 思考内容抓取 | session.py | ⚠️ 待验证 |
+| 思考内容终端显示 | terminal.py | ✅ |
+| 深度思考浏览器控制 | session.py | ✅ |
+
+### 3.6 子代理系统（用户当前要求停用）
+| 能力 | 状态 |
+|------|------|
+| 独立 Playwright 实例 | ✅ 但要求停用 |
+| cookie 凭据复用 | ✅ |
+| 非阻塞任务派发 | ✅ |
+| 任务状态查询 | ✅ |
+| 日志重定向 | ✅ |
+
+---
+
+## 四、逐项验证记录
+
+### ✅ 已确认正常的功能
 ```
-[ ] done 验证现在能正确检查文件生成（发一个写文件任务后 done）
-[ ] file_append 能正确追加内容
-[ ] file_exists 能检查文件存在/不存在
-[ ] list_tasks 能列出子代理任务
-[ ] 20轮时才出现记忆提醒（而非10轮）
-[ ] AI 说放弃时是否真正拦截（发复杂任务测试）
-[ ] Ctrl+C 是否正确处理
+[2026-06-01] 协议解析(尾部逗号/驱动器号/反斜杠) → PASS
+[2026-06-01] 放弃句式拦截(14种) → PASS
+[2026-06-01] 纯文本拦截 → PASS
+[2026-06-01] done工具特殊处理 → PASS
+[2026-06-01] pause命令 → PASS
+[2026-06-01] signal处理 → PASS
+[2026-06-01] UTF-8编码设置 → PASS
+[2026-06-01] 所有10个.py文件语法 → PASS
+[2026-06-01] subprocess GBK编码 → PASS (已修复)
+```
+
+### ❌ 待验证/待修复的功能
+```
+[2026-06-01] done双验证 → 已修复bug，待人工验证
+[2026-06-01] 20轮提醒(原为10轮) → 已修正，待验证
+[2026-06-01] 遇到错误自己写脚本 → 未实现，待实现
+[2026-06-01] Ctrl+C安全处理 → 待验证
+[2026-06-01] 优雅关闭 → 待验证
+[2026-06-01] docx_create中文编码 → 待验证
+[2026-06-01] 深度思考抓取 → 待验证
+[2026-06-01] 记忆持久化实际工作 → 待验证
+```
+
+### 🔴 尚未实现的功能
+```
+[ ] 遇到工具错误时 Agent 自动写脚本修复（用户明确要求）
+[ ] 日报收集每日执行（用户布置的任务，正在进行中）
+[ ] 月度总结自动关联分析
 ```
