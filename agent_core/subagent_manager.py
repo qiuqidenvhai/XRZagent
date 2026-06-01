@@ -420,19 +420,23 @@ class SubAgentManager:
         print(f"[SubAgent] 查询: {query[:60]}...")
         
         # 使用 Popen 非阻塞启动
+        # 日志文件（子代理输出重定向到文件，不开独立窗口）
+        log_file = self.work_dir / f"subagent_{task_id}.log"
+        log_handle = open(log_file, "w", encoding="utf-8")
+        
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             creationflags=0,
         )
         
-        # 后台监控进程
-        asyncio.create_task(self._monitor_subagent(task_id, process, task_dir))
+        # 后台监控进程，传递 log_handle 引用
+        asyncio.create_task(self._monitor_subagent(task_id, process, task_dir, log_file, log_handle))
         
         return task_id
     
-    async def _monitor_subagent(self, task_id: str, process: subprocess.Popen, task_dir: Path):
+    async def _monitor_subagent(self, task_id: str, process: subprocess.Popen, task_dir: Path, log_file=None, log_handle=None):
         """后台监控子代理进程"""
         task = self._tasks.get(task_id)
         if not task:
@@ -479,6 +483,13 @@ class SubAgentManager:
             task.result = SubAgentResult(success=False, error=f"子代理异常退出，返回码: {return_code}\n{stderr}")
             print(f"[SubAgent] {task_id} 异常退出，返回码: {return_code}")
         
+        # 关闭日志文件
+        if log_handle:
+            try:
+                log_handle.close()
+                print(f"[SubAgent] {task_id} 日志已关闭: {log_file}")
+            except Exception:
+                pass
         # 推送通知
         self._push_notification(task)
     
