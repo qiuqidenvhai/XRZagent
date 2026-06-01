@@ -343,9 +343,12 @@ class Commander:
 
             # ── 检测已知 GBK 截断乱码模式 ──
             garbled_fixes = [
-                (r"esktop$", "Desktop"),          # ...esktop → Desktop
-                (r"C:\\sers\\[^\s\\]+", "C:\\Users"),  # C:\sers\... → C:\Users
-                (r"CP_Report", "MCP_Report"),     # CP_Report 截断
+                # 完整小写 "esktop" → Desktop（大写D），前面没有大写字母才算乱码
+                (r"(?<![A-Z])esktop$", "Desktop"),
+                # 驱动器号截断（如 C:sers → C:\Users）
+                (r"^(?=[A-Za-z]:sers\\)", lambda m: m.group(0).replace('sers', '\\Users')),
+                # MCP_Report 被截断成 CP_Report，前面无大写字母才算乱码
+                (r"(?<![A-Z])CP_Report", "MCP_Report"),
             ]
             for pattern, replacement in garbled_fixes:
                 if re.search(pattern, path_raw):
@@ -456,7 +459,7 @@ class Commander:
             timeout = params.get("timeout", 60)
 
             # ── 检测是否需要 PowerShell（乱码模式/非ASCII/中文别名）──
-            has_garbled = bool(re.search(r"esktop|C:\\\\sers|CP_Report", cmd, re.IGNORECASE))
+            has_garbled = bool(re.search(r"(?<![A-Z])esktop$|(?<![A-Z])CP_Report|C:\\sers", cmd, re.IGNORECASE))
             has_non_ascii = bool(re.search(r"[^\x00-\x7F]", cmd))
             has_alias = any(a in cmd for a in ["桌面","Desktop","下载","Downloads","文档","Documents"])
 
