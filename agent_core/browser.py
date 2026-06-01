@@ -342,16 +342,25 @@ class BrowserManager:
 
         return True
 
-    async def wait_response(self, timeout: int = 300) -> Optional[str]:
-        """等待 AI 回复"""
+    async def wait_response(self) -> Optional[str]:
+        """等待 AI 回复（动态，无硬超时）
+
+        策略：
+        - 内容持续变化时一直等
+        - 内容不变超过 3 轮（稳定检测）→ 认为回复完成
+        - 有内容且加载动画消失 → 等稳定后返回
+        - AI 响应快 → 快速返回
+        - AI 响应慢 → 一直等，不提前退出
+        """
         if self._page is None:
             return None
 
-        logger.info(f"等待回复（超时 {timeout}s）...")
+        logger.info("等待回复（动态，无硬超时）...")
         last_text = ""
         stable = 0
+        no_change_cycles = 0
 
-        for _ in range(timeout):
+        while True:
             await asyncio.sleep(1)
             try:
                 text = await self._page.evaluate("""
@@ -364,18 +373,21 @@ class BrowserManager:
                 if text and text != last_text:
                     last_text = text
                     stable = 0
+                    no_change_cycles = 0
                     logger.info(f"收到内容 ({len(text)} 字符)...")
                 elif text and text == last_text:
                     stable += 1
                     if stable >= 3:
                         logger.info(f"回复完成：{len(text)} 字符")
                         return text
+                    no_change_cycles = 0
                 else:
                     loading = await self._page.query_selector(".loading, [class*='generating']")
                     if not loading and last_text:
                         stable += 1
                         if stable >= 2:
                             return last_text
+                    no_change_cycles += 1
             except Exception as e:
                 logger.warning(f"等待回复异常：{e}")
 
