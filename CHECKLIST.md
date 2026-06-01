@@ -111,7 +111,34 @@
 
 ## 三、逐项验证记录
 
-（每项验证后在此处填写结果）
+### 2026-06-01 第一轮核对
+
+#### 发现的问题
+
+| 功能 | 状态 | 原因/修复 |
+|------|------|----------|
+| `done` 双验证 | 🔴 严重bug | `_validate_task_done(result)` 检查的是 `done` 工具自己的输出（"用户确认结束"），永远不含文件扩展名 → 永远返回 allowed=False。修复：改用 `self._last_tool_result` 记录最后工具输出 |
+| 轮次提醒 | 🟡 错误 | `% 10 == 0`（10轮），应为 `% 20 == 0`（20轮）。已修正 |
+| `file_append` 工具 | 🔴 缺失 | 用户明确提到过，但未注册。已补充 |
+| `file_exists` 工具 | 🔴 缺失 | 未注册。已补充 |
+| `list_tasks` 工具 | 🟡 缺失 | 未注册（subagent_manager 有 `check_all_tasks`）。已补充 `list_tasks` 工具调用 `check_all_tasks()` |
+| `shell_exec` decode | 🟢 小问题 | `errors='ignore'` 应为 `errors='replace'`，已修正 |
+| `done` 注册方式 | ✅ 正常 | `done` 在 `_execute_command` 里特殊处理，不需要 `_tools.register` |
+| `ask` 注册方式 | ✅ 正常 | 同上 |
+| `纯文本拦截` | ✅ 正常 | 有实现（cmds为空时发 NO @@@@ PROTOCOL 纠正） |
+| `放弃句式拦截` | ✅ 正常 | 有实现（14种黑名单） |
+| `pause 命令` | ✅ 正常 | terminal.py 用 `cmd == "p"`（双引号） |
+| `signal.SIGINT` | ✅ 正常 | 有 `import signal`，PauseManager 处理 |
+
+#### 修复后 commit: f9c8a32
+
+#### 待人工验证（在终端测试）
 ```
-[日期] [功能名] → [PASS/FAIL]  [备注]
+[ ] done 验证现在能正确检查文件生成（发一个写文件任务后 done）
+[ ] file_append 能正确追加内容
+[ ] file_exists 能检查文件存在/不存在
+[ ] list_tasks 能列出子代理任务
+[ ] 20轮时才出现记忆提醒（而非10轮）
+[ ] AI 说放弃时是否真正拦截（发复杂任务测试）
+[ ] Ctrl+C 是否正确处理
 ```
