@@ -739,12 +739,15 @@ class BrowserManager:
         thinking_stable = 0
 
         last_callback_check = 0
-
-
+        max_wait_cycles = 240  # 240 * 0.5s = 120秒超时
+        wait_cycle = 0
 
         while True:
-
             await asyncio.sleep(0.5)
+            wait_cycle += 1
+            if wait_cycle > max_wait_cycles:
+                logger.warning("wait_response 超时（120秒），返回已收集内容")
+                return last_text if last_text else None
 
             try:
 
