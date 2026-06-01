@@ -187,6 +187,12 @@ class Terminal:
             work_dir=str(self.current_task_dir),
             on_event=self._on_event,
         )
+        # 注册实时思考内容回调
+        def on_thinking(text: str):
+            if text and len(text) > 5:
+                preview = text[-300:] if len(text) > 300 else text
+                print(c(f"\n[思考] {preview}\n", MAGENTA), end="", flush=True)
+        self.browser.set_thinking_callback(on_thinking)
         await self.commander.start(session=self.session)
         self.commander._memory = MemoryManager(str(self.current_task_dir))
 
@@ -601,6 +607,11 @@ class Terminal:
         elif etype == EventType.MEMORY_REMINDER:
             print(c(f"\n[记忆提醒] 已运行 {self._memory_reminder_issued + 1} 轮，建议调用 remember() 保存记忆\n", YELLOW))
             self._memory_reminder_issued += 1
+        elif etype == EventType.THINKING:
+            thinking_text = event.data
+            if thinking_text and len(thinking_text) > 5:
+                preview = thinking_text[-300:] if len(thinking_text) > 300 else thinking_text
+                print(c(f"\n[思考过程] {preview}\n", MAGENTA))
 
 
 async def main():

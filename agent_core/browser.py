@@ -3,6 +3,10 @@ browser.py — Playwright 浏览器管理器（支持子代理）
 """
 import asyncio
 import logging
+
+class BrowserEventType:
+    THINKING = "thinking"
+
 import json
 import tempfile
 import shutil
@@ -359,10 +363,37 @@ class BrowserManager:
         last_text = ""
         stable = 0
         no_change_cycles = 0
+        last_thinking = ""
+        thinking_stable = 0
+        last_callback_check = 0
 
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             try:
+                # 实时获取思考内容（每0.5秒）
+                if self._thinking_callback:
+                    try:
+                        thinking = await self._page.evaluate("""
+                            () => {
+                                const els = document.querySelectorAll("[class*='thinking'], [class*='reasoning'], [class*='思考']");
+                                let t = '';
+                                for (const el of els) {
+                                    if (el.offsetParent !== null) t += el.innerText + '\n';
+                                }
+                                return t.trim();
+                            }
+                        """)
+                        if thinking and thinking != last_thinking:
+                            self._thinking_callback(thinking)
+                            last_thinking = thinking
+                            thinking_stable = 0
+                        elif not thinking and last_thinking:
+                            thinking_stable += 1
+                            if thinking_stable >= 2:
+                                last_thinking = ''
+                    except Exception:
+                        pass
+
                 text = await self._page.evaluate("""
                     () => {
                         const els = document.querySelectorAll(".markdown-body, .prose, [class*='message']");
