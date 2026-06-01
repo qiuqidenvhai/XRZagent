@@ -889,21 +889,19 @@ RAW 命令格式（直接执行shell）：
             if self._checklist_require and cmd.command.tool != "task_checklist":
                 self._emit(EventType.CORRECTION_SENT, {"type": "checklist_required"})
                 task_preview = self._current_task[:80] if self._current_task else ""
-                # JSON 示例用单引号构造，避免 f-string 内 \" 转义问题
-                _ex = ('{"tool":"task_checklist","params":{"mode":"create","task":"TASK_REPL",'
-                      '"items":["第1步","第2步","第3步"]},"id":"1"}')
-                _ex = _ex.replace("TASK_REPL", task_preview)
+                _json_example = (
+                    "{\\"tool\\":\\"task_checklist\\",\\"params\\":{\\"mode\\":\\"create\\",\\"task\\":\\"""
+                    + task_preview.replace("\"", "\\\"") + "\\",\\"items\\":[\\"第1步\\",\\"第2步\\",\\"第3步\\"]},\\"id\\":\\"1\\"}"
+                )
                 current_input = (
                     f"[SYSTEM] \u26a0\ufe0f \u5fc5\u987b\u5148\u5efa\u4efb\u52a1\u6e05\u5355\uff01\n\n"
                     f"\u4efb\u52a1\uff1a{task_preview[:60]}\n\n"
                     f"\u7b2c\u4e00\u6b65\uff1a\u8c03\u7528 task_checklist\uff08mode=create\uff09\u521b\u5efa\u6e05\u5355\uff0c\u628a\u4efb\u52a1\u62c6\u6210\u81f3\u5c113\u987b\u4ee5\u4e0a\n\n"
-                    f"\u793a\u4f8b\uff1a\n  @@@@\n{_ex}\n@@@@\n\n"
+                    f"\u793a\u4f8b\uff1a\n@_JSON_@\n\n"
                     f"\u628a\u4efb\u52a1\u62c6\u6210\u81f3\u5c113\u987b\uff0c\u9010\u9879\u5b8c\u6210\u5e76\u6253\u52fe\uff0c\u6e05\u5355\u5efa\u597d\u4e4b\u524d\u4e0d\u51c6\u8c03\u7528\u5176\u4ed6\u5de5\u5177\uff01"
-                )
+                ).replace("@_JSON_@", _json_example)
                 self._checklist_require = True
                 continue
-
-
             self._emit(EventType.COMMAND_DETECTED, {"tool": cmd.command.tool, "id": cmd.id})
             self._emit(EventType.TOOL_START, {"tool": cmd.command.tool})
 
@@ -1048,18 +1046,7 @@ RAW 命令格式（直接执行shell）：
         result = self._last_tool_result
         if result is None:
             return {"allowed": False, "reason": "没有任何工具执行记录"}
-
-        # === 清单完成度检查 ===
-        checklist_file = Path(self._work_dir) / "_current_checklist.json"
-        if checklist_file.exists():
-            try:
-                data = _json.loads(checklist_file.read_text(encoding="utf-8"))
-                remaining = [item["desc"] for item in data["items"] if not item.get("done")]
-                if remaining:
-                    reasons.append(f"清单还有 {len(remaining)} 项未完成: {remaining[0]}")
-            except Exception:
-                pass
-
+        
         task_keywords = self._current_task.lower()
         output = (result.output or "").lower()
         error = (result.error or "").lower()

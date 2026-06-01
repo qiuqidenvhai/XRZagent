@@ -146,19 +146,11 @@ class Commander:
         self._tool_error_count: dict = {}
         # 任务清单状态
         self._checklist_require: bool = True   # 强制要求先建清单
-        self._current_checklist: dict = {}      # {"task": "...", "items": [...]}
-        # 内部辅助函数
-        self._escape_json = _escape_json
+        self._current_checklist: dict = {}      # {"task": "...", "items": [{"desc": "...", "done": False}], "file": "..."}
 
         # 先注册工具，再构建系统提示词（提示词依赖工具列表）
         self._register_tools()
         self._system_prompt = self._build_system_prompt()
-
-    def _escape_json(s: str) -> str:
-        """转义字符串用于 JSON 嵌入（处理换行、引号、反斜杠）"""
-        if not s:
-            return ""
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 
     def _register_tools(self):
         """注册所有工具（包括子代理工具）"""
@@ -170,22 +162,34 @@ class Commander:
         # 任务清单工具（强制要求：每个任务开始前必须先建清单）
         # ══════════════════════════════════════════════════════
         async def task_checklist(**params):
-            """mode=create(task,items)|mode=update(index,done)|mode=list: 创建/更新/查看任务清单，强制要求先建清单再干活"""
+            """创建或更新任务清单。每个任务开始时，必须先用此工具创建清单，然后逐项完成并打勾。
+            
+            mode=create: 创建新清单
+              params: task="任务描述", items=["子任务1", "子任务2", ...]
+              返回：清单内容，AI 必须按顺序逐项完成
+            
+            mode=update: 标记完成
+              params: index=0-based索引, done=true/false
+              返回：更新后的清单状态
+            
+            mode=list: 查看当前清单状态
+              返回：当前清单（所有未完成项）
+            """
             mode = params.get("mode", "create")
             work_dir = Path(self._work_dir)
             checklist_file = work_dir / "_current_checklist.json"
-
+            
             if mode == "list":
                 if not checklist_file.exists():
                     return "[清单] 当前无进行中的任务清单。"
                 data = _json.loads(checklist_file.read_text(encoding="utf-8"))
                 remaining = [f"[ ] {item['desc']}" for item in data["items"] if not item.get("done")]
                 done = [f"[x] {item['desc']}" for item in data["items"] if item.get("done")]
-                lines = [f"任务: {data['task']}", f"进度: {len(done)}/{len(data['items'])} 项完成"]
-                if remaining: lines.append("--- 未完成 ---") + remaining
+                lines = [f"任务: {data['task']}", f"进度: {len(done)}/{len(data['items'])}"]
+                if remaining: lines.append("--- 待完成 ---") + remaining
                 if done: lines.append("--- 已完成 ---") + done
                 return "\n".join(lines)
-
+            
             if mode == "create":
                 task = params.get("task", self._current_task or "未命名任务")
                 items = params.get("items", [])
@@ -205,7 +209,7 @@ class Commander:
                 for i, desc in enumerate(items):
                     lines.append(f"  [{i}] [ ] {desc}")
                 return "\n".join(lines)
-
+            
             if mode == "update":
                 index = params.get("index", 0)
                 done = params.get("done", True)
@@ -222,12 +226,12 @@ class Commander:
                 done_count = len(data["items"]) - len(remaining)
                 status = "[x] 完成" if done else "[ ] 恢复"
                 return f"{status}: [{index}] {old_desc}\n进度: {done_count}/{len(data['items'])}"
-
+            
             return "[错误] unknown mode, use: create / update / list"
 
         self._tools.register(
             "task_checklist",
-            "mode=create(task,items)|mode=update(index,done)|mode=list: 强制先建清单再干活",
+            "mode=create(task,items)|mode=update(index,done)|mode=list: 创建/更新/查看任务清单，强制要求先建清单再干活",
             task_checklist
         )
 
@@ -235,9 +239,9 @@ class Commander:
         # 自我诊断工具
         # ══════════════════════════════════════════════════════
         async def list_capabilities(**params):
-            """列出 Agent 所有已安装的能力（工具）"""
+            """列出 Agent 所有已安装的能力（工具），帮助 Agent 了解自己能做到什么。"""
             categories = {
-                "文件操作": ["file_write", "file_read", "file_append", "file_exists", "file_list", "dir_create", "file_delete", "file_append"],
+                "文件操作": ["file_write", "file_read", "file_append", "file_exists", "file_list", "dir_create", "file_delete"],
                 "浏览器自动化": ["browser_search", "browser_visit", "browser_screenshot", "browser_fill", "browser_click"],
                 "任务管理": ["task_checklist", "done", "ask"],
                 "记忆系统": ["remember", "recall", "list_summaries"],
@@ -258,7 +262,8 @@ class Commander:
             return "\n".join(lines)
 
         async def get_status(**params):
-            """获取当前运行状态：任务、清单进度、轮次、失败统计"""
+            """获取当前运行状态：任务、清单进度、轮次、失败统计。"""
+            import json as _json
             checklist_file = Path(self._work_dir) / "_current_checklist.json"
             checklist_info = "无"
             if checklist_file.exists():
@@ -365,17 +370,52 @@ class Commander:
 
         # ─── Shell 执行工具 ───
         async def shell_exec(**params):
-            import asyncio
+            import asyncio, os
             cmd = params.get("command", "")
             timeout = params.get("timeout", 60)
-            try:
+            # 检测命令是否含非 ASCII 字符（中文路径等）
+            # cmd.exe 默认用 GBK/CP936，会彻底破坏非 ASCII 字符
+            # 解决：切换到 UTF-8 代码页（65001）后再执行
+            needs_utf8 = any(ord(c) > 127 for c in cmd)
+            if needs_utf8:
+                # 用 PowerShell 执行，PowerShell 7+ 原生 UTF-8
+                # 先尝试 PowerShell，如果失败 fallback 到 cmd + chcp 65001
+                cmd_to_run = cmd
+                shell_exe = None
+                # 优先用 PowerShell 7 (pwsh)
+                pwsh_paths = [
+                    r"C:\Program Files\PowerShell\7\pwsh.exe",
+                    r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
+                ]
+                for p in pwsh_paths:
+                    if os.path.exists(p):
+                        shell_exe = p
+                        break
+                if shell_exe:
+                    proc = await asyncio.create_subprocess_exec(
+                        shell_exe, "-NoProfile", "-Command", cmd_to_run,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                else:
+                    # 没有 PowerShell 7，用 cmd.exe + chcp 65001
+                    cmd_to_run = f"chcp 65001 >nul && {cmd}"
+                    proc = await asyncio.create_subprocess_shell(
+                        cmd_to_run,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+            else:
                 proc = await asyncio.create_subprocess_shell(
                     cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+            try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                return f"[退出码 {proc.returncode}]\n{stdout.decode('utf-8', errors='replace')}\n{stderr.decode('utf-8', errors='replace')}"
+                out_text = stdout.decode('utf-8', errors='replace') if stdout else ''
+                err_text = stderr.decode('utf-8', errors='replace') if stderr else ''
+                return f"[退出码 {proc.returncode}]\n{out_text}\n{err_text}"
             except asyncio.TimeoutError:
                 proc.kill()
                 return f"命令超时（>{timeout}s）"
@@ -889,20 +929,16 @@ RAW 命令格式（直接执行shell）：
             if self._checklist_require and cmd.command.tool != "task_checklist":
                 self._emit(EventType.CORRECTION_SENT, {"type": "checklist_required"})
                 task_preview = self._current_task[:80] if self._current_task else ""
-                # JSON 示例用单引号构造，避免 f-string 内 \" 转义问题
-                _ex = ('{"tool":"task_checklist","params":{"mode":"create","task":"TASK_REPL",'
-                      '"items":["第1步","第2步","第3步"]},"id":"1"}')
-                _ex = _ex.replace("TASK_REPL", task_preview)
                 current_input = (
-                    f"[SYSTEM] \u26a0\ufe0f \u5fc5\u987b\u5148\u5efa\u4efb\u52a1\u6e05\u5355\uff01\n\n"
-                    f"\u4efb\u52a1\uff1a{task_preview[:60]}\n\n"
-                    f"\u7b2c\u4e00\u6b65\uff1a\u8c03\u7528 task_checklist\uff08mode=create\uff09\u521b\u5efa\u6e05\u5355\uff0c\u628a\u4efb\u52a1\u62c6\u6210\u81f3\u5c113\u987b\u4ee5\u4e0a\n\n"
-                    f"\u793a\u4f8b\uff1a\n  @@@@\n{_ex}\n@@@@\n\n"
-                    f"\u628a\u4efb\u52a1\u62c6\u6210\u81f3\u5c113\u987b\uff0c\u9010\u9879\u5b8c\u6210\u5e76\u6253\u52fe\uff0c\u6e05\u5355\u5efa\u597d\u4e4b\u524d\u4e0d\u51c6\u8c03\u7528\u5176\u4ed6\u5de5\u5177\uff01"
+                    f"[SYSTEM] ⚠️ 必须先建任务清单！"
+                    f"\n收到任务「{task_preview}...」"
+                    f"\n→ 第一步：调用 task_checklist 创建清单，格式："
+                    f"\n  @@@@\n{{\"tool\":\"task_checklist\",\"params\":{{\"mode\":\"create\",\"task\":\"{task_preview}\",\"items\":[\"第1步\",\"第2步\",\"第3步\"]}},"id":"1\"}}\n@@@@"
+                    f"\n→ 把任务拆成至少3项，逐项完成并用 task_checklist(mode=update) 打勾"
+                    f"\n→ 清单建好之前不准调用其他工具！"
                 )
-                self._checklist_require = True
+                self._checklist_require = True  # 保持强制，直到建好清单
                 continue
-
 
             self._emit(EventType.COMMAND_DETECTED, {"tool": cmd.command.tool, "id": cmd.id})
             self._emit(EventType.TOOL_START, {"tool": cmd.command.tool})
@@ -1052,6 +1088,7 @@ RAW 命令格式（直接执行shell）：
         # === 清单完成度检查 ===
         checklist_file = Path(self._work_dir) / "_current_checklist.json"
         if checklist_file.exists():
+            import json as _json
             try:
                 data = _json.loads(checklist_file.read_text(encoding="utf-8"))
                 remaining = [item["desc"] for item in data["items"] if not item.get("done")]

@@ -1,5 +1,25 @@
 import signal
 import sys
+import asyncio
+
+# ════════════════════════════════════════════════════════════
+# Ctrl+C 优雅关闭（不在 asynio.run 层面抛异常）
+# ════════════════════════════════════════════════════════════
+_SHUTDOWN_REQUESTED = False
+
+def _sigint_handler(signum, frame):
+    """收到 Ctrl+C 时：只设置标志，不杀进程，让当前命令执行完再退"""
+    global _SHUTDOWN_REQUESTED
+    if not _SHUTDOWN_REQUESTED:
+        _SHUTDOWN_REQUESTED = True
+        # 打印提示（立即flush）
+        print("\n\n[Ctrl+C] 正在关闭，请稍候...（Agent 将在当前命令完成后退出）\n", end="", flush=True)
+        # 不要 raise KeyboardInterrupt！让它传播给 asyncio.run() 外面的 try 捕获
+        # 或者：直接 return，让 asyncio 事件循环自己处理善后
+        # 关键：不调用 sys.exit()，不抛异常，让程序自然结束
+
+
+async def main():
 
 # Windows 控制台 UTF-8 支持（解决 emoji 等 Unicode 字符显示问题）
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -467,4 +487,16 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # 注册 Ctrl+C 处理器（仅在主进程生效）
+    if sys.platform != "win32":
+        signal.signal(signal.SIGINT, _sigint_handler)
+    else:
+        # Windows：Python 3.10+ 的 asyncio.run 会处理 SIGINT
+        # 我们在外层 try 捕获 KeyboardInterrupt 做优雅关闭
+        pass
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[关闭] 仙人掌 Agent 已退出。下次见！")
+    except Exception as e:
+        print(f"\n[致命错误] {e}")

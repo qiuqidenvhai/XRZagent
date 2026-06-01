@@ -189,6 +189,28 @@ class DeepSeekSession:
             lines.append(f"「{role}」{msg.content[:300]}")
         return "\n".join(lines)
 
+    def get_last_conv_url(self) -> str:
+        """从最近保存的对话文件读取 URL，返回 None 表示无保存记录"""
+        import json
+        from pathlib import Path
+        task_root = Path.home() / "XianRenZhang_tasks"
+        if not task_root.exists():
+            return None
+        # 找最新修改的任务目录
+        dirs = sorted([d for d in task_root.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
+        for d in dirs:
+            conv_file = d / "conversation.json"
+            if conv_file.exists():
+                try:
+                    data = json.loads(conv_file.read_text(encoding="utf-8"))
+                    url = data.get("url", "")
+                    # 验证是 DeepSeek URL
+                    if url and "deepseek" in url.lower():
+                        return url
+                except Exception:
+                    pass
+        return None
+
     def get_history(self) -> List[Message]:
         return list(self._messages)
 
