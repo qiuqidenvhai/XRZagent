@@ -1,4 +1,10 @@
 import signal
+import sys
+
+# Windows 控制台 UTF-8 支持（解决 emoji 等 Unicode 字符显示问题）
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 """
 terminal.py — 仙人掌 Agent 终端
 """
