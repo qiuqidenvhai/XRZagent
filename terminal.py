@@ -609,10 +609,18 @@ async def main():
     terminal = Terminal()
     try:
         await terminal.run()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         print(c("\n[Ctrl+C] 正在关闭...", YELLOW))
-    finally:
-        await terminal._shutdown()
+        try:
+            await terminal._shutdown()
+        except asyncio.CancelledError:
+            pass  # 忽略关闭时的取消异常
+    except Exception as e:
+        print(c(f"\n[错误] {e}", RED))
+        try:
+            await terminal._shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

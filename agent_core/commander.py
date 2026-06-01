@@ -336,7 +336,7 @@ class Commander:
                 # 完整小写 "esktop" → Desktop（大写D），前面没有大写字母才算乱码
                 (r"(?<![A-Z])esktop$", "Desktop"),
                 # 驱动器号截断（如 C:sers → C:\Users）
-                (r"^(?=[A-Za-z]:sers\\)", lambda m: m.group(0).replace('sers', '\\Users')),
+                (r"^(?=[A-Za-z]:\\sers\\)", lambda m: m.group(0).replace('sers', '\\Users')),
                 # MCP_Report 被截断成 CP_Report，前面无大写字母才算乱码
                 (r"(?<![A-Z])CP_Report", "MCP_Report"),
             ]
@@ -1111,7 +1111,7 @@ RAW 命令格式（直接执行shell）：
             # 发送给 AI
             try:
                 response = await self._session.send(current_input)
-            except Exception as e:
+            except (Exception, asyncio.CancelledError, KeyboardInterrupt) as e:
                 logger.error(f"AI 调用失败: {e}")
                 return f"[错误] AI 调用失败: {e}"
 
