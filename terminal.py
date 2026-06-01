@@ -218,6 +218,7 @@ class Terminal:
         sys.stdout.flush()
         while self.running:
             # Ctrl+C 打断当前任务，回到输入模式
+            global _INTERRUPT_REQUESTED
             if _INTERRUPT_REQUESTED:
                 _INTERRUPT_REQUESTED = False
                 print(c("\n[打断] 正在中断...\n", YELLOW))
@@ -330,55 +331,18 @@ class Terminal:
                 print(c("="*40 + "\n", YELLOW))
 
     def _read_line(self):
-        """Non-blocking read. Never blocks event loop. 永远返回字符串，永不返回None。"""
-        import threading
-        result = ['']
-        def reader():
-            try:
-                if sys.platform == "win32":
-                    import msvcrt
-                    chars = []
-                    while True:
-                        if msvcrt.kbhit():
-                            ch = msvcrt.getwche()
-                            if ch == '\r':
-                                print()
-                                result[0] = ''.join(chars)
-                                return
-                            elif ch == '\b':
-                                if chars:
-                                    chars.pop()
-                                    sys.stdout.write(' \b')
-                                    sys.stdout.flush()
-                            else:
-                                chars.append(ch)
-                        else:
-                            import time; time.sleep(0.01)
-                else:
-                    result[0] = input()
-            except (EOFError, KeyboardInterrupt):
-                result[0] = ''
-            except Exception:
-                result[0] = ''
-        t = threading.Thread(target=reader, daemon=True)
-        t.start()
-        t.join(timeout=0.05)
-        return result[0] if t.is_alive() else result[0]
+        """读取用户输入。永远返回字符串，EOF/piped 时返回 ''。"""
+        try:
+            return input(">>> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
 
     def _read_line_nonblock(self, default=''):
-        """Non-blocking read, returns default if no input."""
+        """非阻塞读取，无输入时返回 default。永远返回字符串。"""
         r = self._read_line()
         return r if r else default
 
         """非阻塞读取一行，超时返回默认值。Windows 兼容。"""
-        import select, sys
-        try:
-            if select.select([sys.stdin], [], [], 0)[0]:
-                return sys.stdin.readline().strip()
-        except Exception:
-            pass
-        return default
-
     def _copy_credentials_to_managed_dir(self):
         """将凭据复制到管理目录 ~/.xianrenzhang_agent/credentials/"""
         from agent_core.subagent_manager import CREDENTIALS_DIR
@@ -412,10 +376,11 @@ class Terminal:
             self._sam.set_notify_callback(_on_subagent_done)
 
     def _read_line(self):
+        """读取用户输入，阻塞版本。永远返回字符串，EOF 时返回空字符串。"""
         try:
             return input(">>> ").strip()
         except (EOFError, KeyboardInterrupt):
-            return None
+            return ""
 
     async def _wait_user_input(self, question: str) -> str:
         """等待用户输入回答"""
