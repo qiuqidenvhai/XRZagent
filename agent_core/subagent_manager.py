@@ -424,7 +424,7 @@ class SubAgentManager:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+            creationflags=0,
         )
         
         # 后台监控进程

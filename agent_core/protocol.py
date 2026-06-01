@@ -1,5 +1,5 @@
 """
-protocol.py — 仙人掌 Agent JSON 指令协议解析器
+protocol.py — 乔人掌 Agent JSON 指令协议解析器
 """
 import re
 import json
@@ -12,7 +12,6 @@ CMD_END = "@@@@"
 RAW_BEGIN = "<<<RAW>>>"
 RAW_END = "<<<RAW>>>"
 
-
 @dataclass
 class ParsedCommand:
     raw: str
@@ -20,7 +19,6 @@ class ParsedCommand:
     id: str = ""
     fixed: bool = False
     fix_note: str = ""
-
 
 @dataclass
 class ExecutionResult:
@@ -30,7 +28,6 @@ class ExecutionResult:
     output: str = ""
     error: str = ""
 
-
 class Protocol:
     def __init__(self):
         self._tools: dict = {}
@@ -38,7 +35,6 @@ class Protocol:
     def register_tool(self, name: str, spec: dict):
         self._tools[name] = spec
 
-    # ---- 核心解析 ----
     def extract(self, text: str) -> Optional[ParsedCommand]:
         raw_cmd = self._extract_raw(text)
         if raw_cmd:
@@ -97,7 +93,6 @@ class Protocol:
                 return None
 
     def extract_all(self, text: str) -> List[ParsedCommand]:
-        """只返回第一个有效指令（每次一个）"""
         raw_cmd = self._extract_raw(text)
         if raw_cmd:
             return [raw_cmd]
@@ -109,7 +104,7 @@ class Protocol:
         if not tool:
             return False, "缺少 tool 字段"
         if tool not in self._tools and tool != "test":
-            return False, f"未注册工具: {tool}"
+            return False, "未注册工具: " + tool
         return True, ""
 
     def wrap_result(self, result: ExecutionResult, fix_note: str = "") -> str:
@@ -125,89 +120,65 @@ class Protocol:
         if fix_note:
             obj["_note"] = fix_note
         json_str = json.dumps(obj, ensure_ascii=False)
-        return f"{CMD_BEGIN}\n{json_str}\n{CMD_END}"
+        return CMD_BEGIN + "\n" + json_str + "\n" + CMD_END
 
-    # ---- 自动修复（脚本处理，不靠 AI）----
     def _try_fix(self, raw: str) -> Tuple[str, str]:
-        """
-        修复 JSON 解析错误，自动处理以下问题：
-        1. 尾部逗号（逗号在 } 或 ] 前）
-        2. Windows 路径反斜杠未转义（检测到单个 \ 自动加一个变 \\）
-        3. 驱动器号格式（检测到 X: 后面紧跟字母/数字，补全为 X:\）
-        4. 字符串内未转义双引号
-        """
         original = raw
         notes = []
 
-        # 1. 修复尾部逗号
-        if re.search(r",\s*([}\]])", raw):
+        # 1. 尾部逗号
+        trailing_comma = re.search(r",\s*([}\]])", raw)
+        if trailing_comma:
             raw = re.sub(r",\s*([}\]])", r"\1", raw)
             notes.append("尾部逗号")
 
-        # 2. 修复驱动器号格式（如 "C:Users" → "C:\\Users"）
-        #    匹配：引号/冒号后面是 DriveLetter: 紧接着普通字符（非 \ / " , } ] 空格）
-        #    注意：JSON 字符串内的路径，如 "path":"C:Users" 或 "C:Users"
-        def fix_drive_letter(s):
-            # 匹配：字母: 后面紧跟一个非标准路径字符（标准字符：\ / " , } ] 空格 n t r u）
-            # 替换为：字母:\（在 : 后面补 \）
-            result = re.sub(
-                r'([A-Za-z]):([A-Za-z0-9])',
-                lambda m: f'{m.group(1)}:\\\\{m.group(2)}',
-                s
-            )
-            if result != s:
-                notes.append("驱动器路径")
-            return result
+        # 2. 驱动器号转义（始终执行，因为 Python json 可能把 \t 当作 tab）
+        if re.search(r'[A-Za-z]:[A-Za-z0-9]', raw):
+            raw = re.sub(r'([A-Za-z]):([A-Za-z0-9])', lambda m: m.group(1) + ":\\" + m.group(2), raw)
+            notes.append("驱动器路径")
 
-        try:
-            json.loads(raw)
-        except json.JSONDecodeError:
-            raw = fix_drive_letter(raw)
-
-        # 3. 修复未转义反斜杠（核心修复）
-        #    逻辑：遍历字符串，遇到 \ 检查是否是合法转义序列
-        #    合法序列：\" \\ \/ \b \f \n \r \t \uXXXX
-        #    其他情况（单个 \ 后面跟任意字符）→ 加一个 \ 变成 \\
-        def escape_backslash(s):
+        # 3. 未转义反斜杠
+        def escape_one(s):
             result = []
             i = 0
             n = len(s)
             while i < n:
                 c = s[i]
-                if c == '\\':
-                    if i + 1 < n:
-                        next_c = s[i + 1]
-                        # 合法转义序列：保留两个字符
-                        if next_c in ('"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'):
-                            result.append(c)
-                            result.append(next_c)
-                            i += 2
-                            continue
-                        # 非转义字符 → 单个反斜杠，加一个变 \\
-                        else:
-                            if "路径反斜杠" not in notes:
-                                notes.append("路径反斜杠")
-                            result.append('\\\\')
-                            i += 2
-                            continue
-                    else:
-                        # 末尾单个 \ → 加一个变 \\
-                        if "末尾反斜杠" not in notes:
-                            notes.append("末尾反斜杠")
-                        result.append('\\\\')
-                        i += 1
-                        continue
-                else:
+                if c != '\\':
                     result.append(c)
                     i += 1
+                    continue
+                if i + 1 >= n:
+                    if "末尾反斜杠" not in notes:
+                        notes.append("末尾反斜杠")
+                    result.append('\\\\')
+                    i += 1
+                    continue
+                next_c = s[i + 1]
+                if next_c in ('"', '\\', '/', 'b', 'f', 'n', 'r', 't'):
+                    result.append(s[i:i+2])
+                    i += 2
+                    continue
+                if next_c == 'u':
+                    if i + 5 < n and all(ch in '0123456789abcdefABCDEF' for ch in s[i+2:i+6]):
+                        result.append(s[i:i+6])
+                        i += 6
+                        continue
+                    if "路径反斜杠" not in notes:
+                        notes.append("路径反斜杠")
+                    result.append('\\\\')
+                    i += 2
+                    continue
+                if "路径反斜杠" not in notes:
+                    notes.append("路径反斜杠")
+                result.append('\\\\')
+                i += 2
             return ''.join(result)
 
-        fixed = escape_backslash(raw)
+        fixed = escape_one(raw)
+        if fixed != original:
+            if "路径反斜杠" not in notes and "末尾反斜杠" not in notes:
+                notes.insert(0, "路径反斜杠")
 
         note_str = " + ".join(notes) if notes else ""
         return fixed, note_str
-
-
-def wrap_message(msg_type: str, content: dict, msg_id: str = "") -> str:
-    obj = {"type": msg_type, **content, "id": msg_id}
-    return f"{CMD_BEGIN}\n{json.dumps(obj, ensure_ascii=False)}\n{CMD_END}"
