@@ -4,10 +4,6 @@
 
 ## 快速启动
 
-```bash
-cd D:\软件\XianRenZhangAgent
-python terminal.py
-```
 
 ## 功能状态表 (v0.3.1)
 
