@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# 运行时文件
+*.log
+*.tmp
+*.tmp.*
+*.swp
+*.swo
+
+# 浏览器数据
+browser_data/
+*.cookies.json
+
+# 子代理输出
+tasks/
+task_output/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 调试截图
+debug_*.png
+debug_*.jpg
+
+# 临时测试文件
+test_path_debug.py
+*_test.py
+# test_*.py  # 不要过滤 agent_self_test.py
+debug_*.py
+fix_*.py
+
+# 凭据文件
+.xianrenzhang_agent/
+
+# Windows
+Thumbs.db
+desktop.ini
