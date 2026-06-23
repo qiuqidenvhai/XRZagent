@@ -139,11 +139,19 @@ class Terminal:
         self.current_task_dir.mkdir(exist_ok=True)
         print(c(f"[任务目录] {self.current_task_name}\n", GREEN))
 
-        # 8. 初始化子代理管理器
+        # 8. 初始化多平台浏览器管理器（共享母代理 cookie）
+        from agent_core.multi_browser import MultiBrowserManager, set_multi_browser_manager
+        self.multi_browser = MultiBrowserManager()
+        await self.multi_browser.init_from_existing_context(self.browser)
+        set_multi_browser_manager(self.multi_browser)
+        await self.multi_browser.launch_all()
+        print(c(f"[多平台] 已初始化 {len(self.multi_browser._pages)} 个平台\n", GREEN))
+
+        # 9. 初始化子代理管理器
         self._sam = get_subagent_manager(str(self.current_task_dir))
         self._register_subagent_callback()
 
-        # 9. 初始化会话和 Commander
+        # 10. 初始化会话和 Commander
         self.session = DeepSeekSession(self.browser)
         self.commander = Commander(
             browser_manager=self.browser,
@@ -205,16 +213,24 @@ class Terminal:
                 mode = "深度思考" if self.session.thinking_mode else "快速模式"
                 print(c(f"[思考模式] 已切换为：{mode}\n", CYAN))
                 continue
-            if cmd == "upload":
-                parts = raw.split(maxsplit=1)
-                file_path = parts[1] if len(parts) > 1 else None
-                await self._handle_upload(file_path)
-                continue
             if cmd == "thinklog":
                 await self._show_thinking_log()
                 continue
             if cmd == "gui":
                 await self._launch_gui()
+                continue
+            if cmd == "upload":
+                parts = raw.split(maxsplit=1)
+                file_path = parts[1] if len(parts) > 1 else None
+                await self._handle_upload(file_path)
+                continue
+            if cmd == "platform":
+                parts = raw.split(maxsplit=1)
+                platform_name = parts[1].strip().lower() if len(parts) > 1 else None
+                await self._switch_platform(platform_name)
+                continue
+            if cmd == "history":
+                await self._show_history()
                 continue
 
             await self._handle_command(raw)
@@ -330,6 +346,7 @@ class Terminal:
         print(c("  deep / think     — 切换深度思考模式", GRAY))
         print(c("  upload <文件>    — 上传文件", GRAY))
         print(c("  platform <平台名> — 切换平台", GRAY))
+        print(c("  history          — 显示会话历史", GRAY))
         print(c("  gui              — 打开图形界面", GRAY))
         print(c("  thinklog         — 显示当前思考内容", GRAY))
         print(c("  Ctrl+C           — 中断当前命令\n", GRAY))
@@ -406,7 +423,48 @@ class Terminal:
             print(c("="*40 + "\n", CYAN))
         else:
             print(c("[思考] 当前无思考内容", GRAY))
-    
+
+    async def _switch_platform(self, platform_name: str = None):
+        """切换多平台 LLM"""
+        from agent_core.multi_browser import get_multi_browser_manager
+        global PLATFORMS
+        if not platform_name:
+            available = ", ".join(get_multi_browser_manager()._platform_configs.keys()) if get_multi_browser_manager() else "deepseek,tongyi,doubao,yuanbao,gpt,gemini,ollama"
+            print(c(f"[平台] 当前使用 DeepSeek。可用平台: {available}", YELLOW))
+            return
+        mb = get_multi_browser_manager()
+        if not mb:
+            print(c("[平台] 多平台浏览器未初始化，请先登录并启动\n", YELLOW))
+            return
+        if platform_name not in mb._platform_configs:
+            print(c(f"[错误] 不支持的平台: {platform_name}", RED))
+            return
+        pp = mb._pages.get(platform_name)
+        if not pp or not pp.page:
+            print(c(f"[错误] 平台 {platform_name} 未加载", RED))
+            return
+        await pp.page.bring_to_front()
+        print(c(f"[平台] 已切换到: {mb._platform_configs[platform_name]['name']} ({platform_name})", GREEN))
+        if not pp.is_logged_in:
+            print(c(f"[提示] 请在浏览器中为 {platform_name} 完成登录", YELLOW))
+
+    async def _show_history(self):
+        """显示会话历史"""
+        from agent_core.session import get_conversation_history
+        history = get_conversation_history()
+        records = history.list_records(limit=10)
+        if not records:
+            print(c("[历史] 暂无对话记录", YELLOW))
+            return
+        print(c("\n=== 最近会话历史 ===", GREEN))
+        for i, rec in enumerate(reversed(records), 1):
+            msg_count = len(rec.messages)
+            print(c(f"  {i}. [{rec.platform}] session={rec.session_id}", CYAN))
+            print(c(f"     消息: {msg_count} 条  时间: {rec.created_at}", GRAY))
+            if rec.url:
+                print(c(f"     URL: {rec.url[:80]}...", GRAY))
+        print(c("=" * 40 + "\n", GREEN))
+
     async def _shutdown(self):
         if self.browser:
             await self.browser.close()
