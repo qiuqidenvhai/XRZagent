@@ -450,59 +450,75 @@ class BrowserManager:
             return f"获取 HTML 失败：{e}"
 
     async def toggle_deep_think(self, enable: bool = True) -> bool:
-        """切换深度思考模式"""
+        """切换深度思考模式
+        
+        支持多平台：DeepSeek、通义千问、豆包、元宝、ChatGPT、Gemini
+        """
         if self._page is None:
             return False
         try:
-            # 深度思考按钮选择器 - 尝试多种可能的定位方式
-            # DeepSeek 界面可能有不同的结构
-            selectors = [
-                "button:has-text('深度思考')",
-                "button:has-text('DeepThink')",
-                "button:has-text('深度')",
-                "[class*='deep'] button",
-                "[class*='think'] button",
-                "div[role='button']:has-text('深度思考')",
-                "div[role='button']:has-text('深度')",
-                "//button[contains(text(), '深度')]",
-                "//div[contains(text(), '深度思考')]",
-            ]
+            # 尝试多种平台的深度思考按钮选择器
+            selectors_by_platform = {
+                "deepseek": [
+                    "button:has-text('深度思考')",
+                    "button:has-text('DeepThink')",
+                    "button:has-text('深度')",
+                    "[class*='deep'] button",
+                    "[class*='think'] button",
+                    "div[role='button']:has-text('深度思考')",
+                    "div[role='button']:has-text('深度')",
+                ],
+                "tongyi": [
+                    "button:has-text('深度思考')",
+                    "button:has-text('深度')",
+                    "[class*='think'] button",
+                ],
+                "gpt": [
+                    "button:has-text('Analysis')",
+                    "button:has-text('Extended')",
+                    "[class*='analysis'] button",
+                ],
+                "gemini": [
+                    "button:has-text('Think')",
+                    "[class*='think'] button",
+                ],
+            }
             
-            for sel in selectors:
+            all_selectors = []
+            for sel_list in selectors_by_platform.values():
+                all_selectors.extend(sel_list)
+            
+            for sel in all_selectors:
                 try:
-                    if sel.startswith("//"):
-                        # XPath
-                        btn = self._page.locator(f"xpath={sel}").first
-                    else:
-                        btn = self._page.locator(sel).first
+                    btn = self._page.locator(sel).first
                     
                     if await btn.count() > 0:
-                        # 检查当前状态 - 多种方式
+                        # 检查当前状态
                         is_active = await btn.evaluate("""el => {
                             const computed = window.getComputedStyle(el);
                             const bg = computed.backgroundColor || '';
                             const hasActiveClass = el.classList.contains('active') || 
                                                   el.classList.contains('selected') ||
-                                                  el.classList.contains('enabled');
+                                                  el.classList.contains('enabled') ||
+                                                  el.classList.contains('thinking');
                             const ariaPressed = el.getAttribute('aria-pressed') === 'true';
+                            const ariaExpanded = el.getAttribute('aria-expanded') === 'true';
                             const isChecked = el.getAttribute('aria-checked') === 'true';
-                            // 检查背景色是否为蓝色（激活状态常见特征）
-                            const isBlue = bg.includes('rgb(0') || bg.includes('blue') || bg.includes('#1890ff');
-                            return hasActiveClass || ariaPressed || isChecked || isBlue;
+                            // 检查背景色是否为蓝色/紫色（激活状态常见特征）
+                            const isColored = bg.includes('rgb(0') || bg.includes('blue') || bg.includes('#1890ff') || bg.includes('purple');
+                            return hasActiveClass || ariaPressed || ariaExpanded || isChecked || isColored;
                         }""")
                         
-                        if enable and not is_active:
-                            await btn.click()
-                            await asyncio.sleep(0.8)
-                            logger.info("深度思考模式已开启")
+                        target_state = enable
+                        if is_active == target_state:
+                            logger.info(f"深度思考模式已是{'开启' if enable else '关闭'}状态")
                             return True
-                        elif not enable and is_active:
-                            await btn.click()
-                            await asyncio.sleep(0.8)
-                            logger.info("深度思考模式已关闭")
-                            return True
-                        return True  # 状态已经是目标状态
-                except Exception as btn_err:
+                        
+                        await btn.click()
+                        await asyncio.sleep(0.8)
+                        logger.info(f"深度思考模式已{'开启' if enable else '关闭'}")
+                        return True
+                except Exception:
                     continue
             
             logger.warning("未找到深度思考按钮 - 请检查界面是否有变化")

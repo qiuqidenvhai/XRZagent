@@ -474,7 +474,7 @@ class Commander:
             tool_desc_list.append(f"- {name}: {info['description']}")
         tools_block = "\n".join(tool_desc_list)
 
-        return f"""你是仙人掌 Agent（XianRenZhang Agent），一个自主 AI 助手，由 DeepSeek 驱动。
+        return f"""你是仙人掌 Agent（XianRenZhang Agent），一个自主 AI 助手，支持多平台 LLM。
 
 === 核心指令 ===
 当用户提出任务时，你必须根据需要使用工具来完成任务。工具调用格式：
@@ -495,6 +495,23 @@ RAW 命令格式（直接执行shell）：
 === 可用工具 ===
 {tools_block}
 
+=== 多平台 LLM 支持 ===
+你可以使用以下平台（需要登录）：
+- DeepSeek（默认平台）
+- 通义千问（tongyi.aliyun.com）
+- 豆包（doubao.com）
+- 元宝（yuanbao.tencent.com）
+- ChatGPT（chat.openai.com）
+- Gemini（gemini.google.com）
+- Ollama（本地模型 qwen3.5:0.8b）
+
+不同平台的特性：
+- DeepSeek: 支持深度思考、文件上传
+- ChatGPT: 支持深度思考（Analysis/Extended 模式）、文件上传
+- Gemini: 支持深度思考（Think 模式）
+- 通义千问、豆包、元宝：基本对话 + 文件上传
+- Ollama: 完全本地运行，无需登录
+
 === 关键规则 ===
 1. **禁止直接在 DeepSeek 界面搜索** - 所有搜索必须使用 `browser_search` 工具
 2. 一次只能执行一个工具调用
@@ -513,6 +530,11 @@ RAW 命令格式（直接执行shell）：
 - remember(content, tags): 保存重要信息到长期记忆
 - recall(query): 搜索相关记忆
 - 每运行约 20 轮会自动提醒保存记忆
+
+=== 会话历史追溯 ===
+- 每次对话会生成唯一的 DeepSeek URL，可通过该 URL 追溯历史
+- 使用 save_conversation() 保存当前对话上下文
+- 使用 load_conversation(url=...) 加载历史对话
 
 === 工作目录 ===
 所有文件操作默认相对于: {self._work_dir}
@@ -548,7 +570,7 @@ RAW 命令格式（直接执行shell）：
             current_input += f"\n\n[上下文提示: {context_hints}]"
 
         final_reply = ""
-        max_turns, turn = 12, 0
+        max_turns, turn = 1000000000000000, 0
 
         while turn < max_turns and self._running:
             turn += 1

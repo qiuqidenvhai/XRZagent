@@ -6,9 +6,12 @@ memory_manager.py — 记忆系统
 """
 import json
 import time
+import logging
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
+
+logger = logging.getLogger("memory")
 
 
 @dataclass
@@ -170,6 +173,84 @@ class MemoryManager:
             content = Path(s["path"]).read_text(encoding="utf-8")
             lines.append(f"\n## {s['name']}（{s['modified']}）\n{content[:1000]}")
         return "\n".join(lines)
+
+
+    # ----------------------------------------------------------
+    # 保存和检索记忆（key-value 存储）
+    # ----------------------------------------------------------
+    def _load_entries(self) -> dict:
+        """加载所有记忆条目"""
+        entries_file = self.memory_dir / "entries.json"
+        if entries_file.exists():
+            try:
+                return json.loads(entries_file.read_text(encoding="utf-8"))
+            except:
+                return {}
+        return {}
+
+    def _save_entries(self, entries: dict):
+        """保存所有记忆条目"""
+        entries_file = self.memory_dir / "entries.json"
+        entries_file.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def save(self, content: str, tags: Optional[List[str]] = None, title: str = "") -> str:
+        """保存单条记忆，返回 ID"""
+        if not title:
+            title = content[:50]
+        entries = self._load_entries()
+        entry_id = f"mem_{int(time.time())}"
+        entries[entry_id] = {
+            "id": entry_id,
+            "title": title,
+            "content": content,
+            "tags": tags or [],
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self._save_entries(entries)
+        logger.info(f"记忆已保存: {entry_id}")
+        return entry_id
+
+    def search(self, query: str, limit: int = 10) -> List[dict]:
+        """搜索记忆，返回匹配条目"""
+        entries = self._load_entries()
+        query_lower = query.lower()
+        results = []
+        for entry_id, entry in entries.items():
+            score = 0
+            content_lower = entry.get("content", "").lower()
+            tags = entry.get("tags", [])
+            if query_lower in content_lower:
+                score += content_lower.count(query_lower) * 10
+            if any(query_lower in t.lower() for t in tags):
+                score += 20
+            if any(query_lower in w.lower() for w in content_lower.split()[:50]):
+                score += 1
+            if score > 0:
+                results.append((score, entry))
+        results.sort(key=lambda x: -x[0])
+        return [{"id": r[1]["id"], "content": r[1]["content"], "title": r[1]["title"], "tags": r[1]["tags"], "score": s} for s, r in results[:limit]]
+
+    def summarize(self, period: str = "today") -> List[dict]:
+        """按周期生成摘要"""
+        entries = self._load_entries()
+        filtered = []
+        for entry_id, entry in entries.items():
+            saved = entry.get("saved_at", "")
+            if period == "today" and saved[:10] == time.strftime("%Y-%m-%d"):
+                filtered.append(entry)
+            elif period == "all":
+                filtered.append(entry)
+        return filtered
+
+    def list(self, limit: int = 20) -> List[dict]:
+        """列出记忆条目"""
+        entries = self._load_entries()
+        result = sorted(entries.values(), key=lambda x: x.get("saved_at", ""), reverse=True)[:limit]
+        return result
+
+    def recall(self, query: str, limit: int = 5) -> List[dict]:
+        """召回相关记忆（search 的别名）"""
+        return self.search(query, limit=limit)
 
 
 import logging
