@@ -48,7 +48,10 @@ class BaseSubAgent(ABC):
         # 分发到具体工具
         if task in self._tools:
             try:
-                result = await self._tools[task](**params)
+                fn = self._tools[task]
+                result = fn(**params)
+                if asyncio.iscoroutine(result):
+                    result = await result
                 return SubAgentResult(success=True, output=str(result), agent_name=self.name)
             except Exception as e:
                 return SubAgentResult(success=False, output="", error=str(e), agent_name=self.name)

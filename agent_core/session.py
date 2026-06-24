@@ -21,6 +21,12 @@ logger = logging.getLogger("session")
 _CONVERSATION_INDEX_PATH = Path.home() / ".xianrenzhang_agent" / "conversation_index.json"
 
 
+class MessageRole(Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
 @dataclass
 class Message:
     """单条消息"""

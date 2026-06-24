@@ -228,7 +228,7 @@ class MemoryManager:
             if score > 0:
                 results.append((score, entry))
         results.sort(key=lambda x: -x[0])
-        return [{"id": r[1]["id"], "content": r[1]["content"], "title": r[1]["title"], "tags": r[1]["tags"], "score": s} for s, r in results[:limit]]
+        return [{"id": r["id"], "content": r["content"], "title": r["title"], "tags": r["tags"], "score": s} for s, r in results[:limit]]
 
     def summarize(self, period: str = "today") -> List[dict]:
         """按周期生成摘要"""
