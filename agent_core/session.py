@@ -50,7 +50,7 @@ class ConversationRecord:
 
 
 class ConversationHistory:
-    """对话历史管理器 - 持久化到 ~\xianrenzhang_agent\conversation_index.json
+    """对话历史管理器 - 持久化到 ~/.xianrenzhang_agent/conversation_index.json
 
     每次完成一轮或多轮对话后，自动调用 save() 持久化。
     用户可以通过 history.search(query) / history.get_by_url(url) 追溯历史。

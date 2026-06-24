@@ -298,9 +298,10 @@ class MultiBrowserManager:
         for _ in range(timeout):
             await asyncio.sleep(1)
             try:
+                sel = config["response_selector"].replace("'", "\\'")
                 text = await pp.page.evaluate(f"""
                     () => {{
-                        const els = document.querySelectorAll('{config[\"response_selector\"]}');
+                        const els = document.querySelectorAll('{sel}');
                         if (!els.length) return null;
                         return els[els.length - 1].innerText.trim();
                     }}

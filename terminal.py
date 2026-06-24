@@ -427,7 +427,6 @@ class Terminal:
     async def _switch_platform(self, platform_name: str = None):
         """切换多平台 LLM"""
         from agent_core.multi_browser import get_multi_browser_manager
-        global PLATFORMS
         if not platform_name:
             available = ", ".join(get_multi_browser_manager()._platform_configs.keys()) if get_multi_browser_manager() else "deepseek,tongyi,doubao,yuanbao,gpt,gemini,ollama"
             print(c(f"[平台] 当前使用 DeepSeek。可用平台: {available}", YELLOW))
@@ -473,256 +472,36 @@ class Terminal:
     async def _launch_gui(self):
         """启动 GUI 图形界面"""
         print(c("\n[GUI] 正在启动图形界面...\n", CYAN))
-        try:
-            gui_script = '''
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>仙人掌 Agent</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#111827;color:#e5e7eb;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-.header{background:linear-gradient(135deg,#059669,#10b981);padding:16px 24px;display:flex;align-items:center;gap:12px}
-.header h1{font-size:22px;font-weight:700;color:#fff}
-.header .badge{background:rgba(255,255,255,.2);border-radius:20px;padding:2px 10px;font-size:12px;color:#fff}
-.tabs{display:flex;gap:4px;padding:8px 24px;background:#1f2937;border-bottom:1px solid #374151}
-.tab{padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;color:#9ca3af;transition:.2s}
-.tab.active{background:#059669;color:#fff}
-.main{display:flex;flex:1;overflow:hidden}
-.chat-panel{flex:1;display:flex;flex-direction:column;min-width:0}
-.messages{flex:1;overflow-y:auto;padding:16px 24px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:80%;padding:12px 16px;border-radius:12px;line-height:1.5;font-size:14px}
-.msg.user{align-self:flex-end;background:#059669;color:#fff;border-bottom-right-radius:4px}
-.msg.ai{align-self:flex-start;background:#374151;border-bottom-left-radius:4px}
-.msg.system{align-self:center;background:#1f2937;border:1px solid #4b5563;font-size:12px;padding:8px 16px}
-.input-area{display:flex;gap:8px;padding:12px 24px;background:#1f2937;border-top:1px solid #374151}
-.input-area input{flex:1;padding:10px 16px;border-radius:24px;border:none;background:#111827;color:#e5e7eb;font-size:14px;outline:none}
-.input-area input:focus{box-shadow:0 0 0 2px #059669}
-.btn-send{width:44px;height:44px;border-radius:50%;border:none;background:#059669;color:#fff;cursor:pointer;font-size:18px;transition:.2s}
-.btn-send:hover{background:#10b981}
-.panel{width:280px;border-left:1px solid #374151;background:#1f2937;display:flex;flex-direction:column;overflow-y:auto}
-.panel-section{padding:12px 16px;border-bottom:1px solid #374151}
-.panel-section h3{font-size:13px;color:#9ca3af;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.platform-btn{display:block;width:100%;padding:8px 12px;margin-bottom:4px;border-radius:6px;border:none;background:#374151;color:#d1d5db;cursor:pointer;font-size:13px;text-align:left;transition:.2s}
-.platform-btn:hover{background:#4b5563}
-.platform-btn.active{background:#059669;color:#fff}
-.cmd-btn{display:inline-block;padding:6px 10px;margin:2px;border-radius:4px;border:none;background:#374151;color:#d1d5db;cursor:pointer;font-size:12px}
-.cmd-btn:hover{background:#4b5563}
-.history-item{padding:6px 10px;margin:2px 0;border-radius:4px;background:#374151;font-size:12px;cursor:pointer;color:#d1d5db}
-.history-item:hover{background:#4b5563}
-.typing-indicator{align-self:flex-start;background:#374151;padding:8px 16px;border-radius:12px;font-size:13px;color:#6b7280}
-</style>
-</head>
-<body>
-<div class="header">
-<h1>🌵 仙人掌 Agent</h1>
-<span class="badge">多平台 LLM</span>
-</div>
-<div class="tabs" id="tabs">
-<div class="tab active" onclick="switchTab('chat')">聊天</div>
-<div class="tab" onclick="switchTab('commands')">命令</div>
-</div>
-<div class="main">
-<div class="chat-panel">
-<div class="messages" id="messages"></div>
-<div class="input-area">
-<input id="userInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendMessage()">
-<button class="btn-send" onclick="sendMessage()">➤</button>
-</div>
-</div>
-<div class="panel" id="panel">
-<div class="panel-section">
-<h3>平台切换</h3>
-<div id="platforms"></div>
-</div>
-<div class="panel-section">
-<h3>快捷命令</h3>
-<button class="cmd-btn" onclick="runCmd('deep')">深度思考</button>
-<button class="cmd-btn" onclick="runCmd('new')">新任务</button>
-<button class="cmd-btn" onclick="runCmd('clear')">清屏</button>
-<button class="cmd-btn" onclick="runCmd('p')">暂停</button>
-<button class="cmd-btn" onclick="runCmd('list')">记忆列表</button>
-</div>
-<div class="panel-section">
-<h3>会话历史</h3>
-<div id="history"></div>
-</div>
-</div>
-</div>
-<script>
-const messages=document.getElementById('messages');
-const input=document.getElementById('userInput');
-let currentTab='chat';
-const platforms=['deepseek','tongyi','doubao','yuanbao','gpt','gemini','ollama'];
-let activePlatform='deepseek';
-platforms.forEach(p=>{
-const btn=document.createElement('button');
-btn.className='platform-btn'+(p===activePlatform?' active':'');
-btn.textContent=(p.toUpperCase());
-btn.onclick=()=>{activePlatform=p;document.querySelectorAll('.platform-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active')};
-document.getElementById('platforms').appendChild(btn);
-});
-function addMessage(content,type='user'){
-const div=document.createElement('div');
-div.className='msg '+type;
-div.textContent=content;
-messages.appendChild(div);
-messages.scrollTop=messages.scrollHeight;
-}
-function addTyping(){
-const div=document.createElement('div');
-div.className='typing-indicator';
-div.textContent='...';
-div.id='typing';
-messages.appendChild(div);
-messages.scrollTop=messages.scrollHeight;
-setTimeout(()=>{const t=document.getElementById('typing');if(t)t.remove()},2000);
-}
-async function sendMessage(){
-const text=input.value.trim();
-if(!text)return;
-input.value='';
-addMessage(text,'user');
-addTyping();
-const formData=new FormData();
-formData.append('cmd',text);
-try{
-const res=await fetch('/api/command',{method:'POST',body:formData});
-const data=await res.json();
-addMessage(data.reply||'(空)','ai');
-}catch(e){
-addMessage('连接母代理失败: '+e.message,'system');
-}
-}
-function runCmd(cmd){
-addMessage(cmd,'system');
-const fd=new FormData();
-fd.append('cmd',cmd);
-fetch('/api/command',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{if(d.reply)addMessage(d.reply,'system')}).catch(()=>{});
-}
-function switchTab(tab){
-currentTab=tab;
-document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-event.target.classList.add('active');
-}
-addMessage('欢迎使用仙人掌 Agent 🌵','system');
-</script>
-</body>
-</html>
-'''
-            import tempfile
-            from pathlib import Path
-            import threading
-            from http.server import HTTPServer, SimpleHTTPRequestHandler
-            
-            tmp_file = Path(tempfile.mkdtemp()) / "gui.html"
-            tmp_file.write_text(gui_script, encoding="utf-8")
-            
-            class Handler(SimpleHTTPRequestHandler):
-                def do_GET(self):
-                    if self.path == '/' or self.path == '/gui.html':
-                        self.send_response(200)
-                        self.send_header('Content-type', 'text/html; charset=utf-8')
-                        self.end_headers()
-                        self.wfile.write(gui_script.encode('utf-8'))
-                    elif self.path == '/api/command':
-                        pass
-                    else:
-                        super().do_GET()
-                
-                def do_POST(self):
-                    if self.path == '/api/command':
-                        content_length = int(self.headers['Content-Length'])
-                        post_data = self.rfile.read(content_length)
-                        import urllib.parse
-                        parsed = urllib.parse.parse_qs(post_data.decode('utf-8'))
-                        cmd = parsed.get('cmd', [''])[0]
-                        
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        
-                        from agent_core.commander import Commander
-                        from agent_core.session import DeepSeekSession
-                        from agent_core.memory_manager import MemoryManager
-                        from pathlib import Path as P
-                        
-                        task_root = P.home() / "XianRenZhang_tasks"
-                        task_root.mkdir(exist_ok=True)
-                        task_dir = task_root / self.current_task_name
-                        task_dir.mkdir(exist_ok=True)
-                        
-                        # 初始化组件
-                        session = DeepSeekSession(self.current_browser)
-                        self.commander = Commander(
-                            browser_manager=self.current_browser,
-                            session=session,
-                            work_dir=str(task_dir),
-                        )
-                        loop.run_until_complete(self.commander.start(session=session))
-                        self.commander._memory = MemoryManager(str(task_dir))
-                        
-                        try:
-                            reply = loop.run_until_complete(
-                                self.commander.run_with_loop(
-                                    user_instruction=cmd,
-                                    file_path=None,
-                                    context_hints=""
-                                )
-                            )
-                        except Exception as e:
-                            reply = f"命令执行错误: {e}"
-                        
-                        self.send_response(200)
-                        self.send_header('Content-type', 'application/json; charset=utf-8')
-                        self.end_headers()
-                        self.wfile.write({'reply': reply[:2000]}.encode('utf-8'))
-                    
-                    def log_message(self, format, *args):
-                        pass
-                
-                current_task_name = "任务 1"
-                current_browser = None
-                commander = None
-            
-            # 存储 browser manager 引用
-            if self.browser:
-                Handler.current_browser = self.browser
-            
-            try:
-                server = HTTPServer(('127.0.0.1', 8090), Handler)
-                print(c("[GUI] 服务器启动于 http://127.0.0.1:8090\n", GREEN))
-                
-                import webbrowser
-                webbrowser.open('http://127.0.0.1:8090')
-                
-                server.serve_forever()
-            except Exception as e:
-                print(c(f"[GUI] 启动失败: {e}\n", RED))
-
-    async def _shutdown(self):
+        gui_script = open("gui.html", "r", encoding="utf-8").read() if Path("gui.html").exists() else "<h1>GUI</h1>"
+        from pathlib import Path as P
+        from http.server import HTTPServer, SimpleHTTPRequestHandler
+        
+        class Handler(SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/":
+                    self.send_response(200)
+                    self.send_header("Content-type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(open("gui.html", "rb").read())
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            def log_message(self, fmt, *args):
+                pass
+            current_task_name = "任务 1"
+            current_browser = None
+        
         if self.browser:
-            await self.browser.close()
-        print(c("\n再见\n", CYAN))
+            Handler.current_browser = self.browser
+        
+        server = HTTPServer(("127.0.0.1", 8090), Handler)
+        print(c("\n[GUI] 服务器启动于 http://127.0.0.1:8090\n", GREEN))
+        import webbrowser
+        webbrowser.open("http://127.0.0.1:8090")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print(c("[GUI] 用户中断，关闭服务器\n", YELLOW))
+        finally:
+            server.server_close()
 
-    def _on_event(self, event):
-        etype = event.event_type
-        if etype == EventType.TOOL_START:
-            pass
-        elif etype == EventType.TOOL_END:
-            pass
-        elif etype == EventType.ERROR:
-            print(c(f"[事件] 错误：{event.data}", RED))
-        elif etype == EventType.MEMORY_REMINDER:
-            print(c(f"\n[记忆提醒] 已运行 {self._memory_reminder_issued + 1} 轮，建议调用 remember() 保存记忆\n", YELLOW))
-            self._memory_reminder_issued += 1
-
-
-async def main():
-    terminal = Terminal()
-    await terminal.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
